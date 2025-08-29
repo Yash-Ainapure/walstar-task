@@ -17,27 +17,16 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   }
   if (data) {
     const { locations } = data;
-    console.log('Received new locations in background:', locations);
+    console.log('--- BACKGROUND TASK ---');
+    console.log(`Received ${locations.length} new locations in background.`);
     try {
       await initDB(); // Initialize DB for the background task
       for (const location of locations) {
         await writeLocation(location.coords.latitude, location.coords.longitude, new Date(location.timestamp));
       }
-      // Attempt to sync data immediately after receiving it
-      const netState = await NetInfo.fetch();
-      if (netState.isConnected) {
-        const dbLocations = await getLocations();
-        if (dbLocations.length > 0) {
-          const route = dbLocations.map(loc => ({
-            latitude: loc.latitude,
-            longitude: loc.longitude,
-            timestamp: loc.timestamp
-          }));
-          await storeRoute(route);
-          await deleteAllLocations();
-          console.log('Offline data synced from background task');
-        }
-      }
+      // Just store locations locally, don't sync immediately
+      console.log('--- BACKGROUND TASK ---');
+      console.log('Locations stored locally. Will sync on check-out.');
     } catch (err) {
       console.error('Error processing background location:', err);
     }
@@ -49,6 +38,8 @@ const HomeScreen = ({ navigation }) => {
 
   // ✅ Sync offline data to the server when online
   const syncOfflineData = async () => {
+    console.log('--- SYNC ---');
+    console.log('Checking for offline data to sync...');
     const netState = await NetInfo.fetch();
     if (netState.isConnected) {
       const locations = await getLocations();
@@ -61,7 +52,9 @@ const HomeScreen = ({ navigation }) => {
           }));
           await storeRoute(route);
           await deleteAllLocations();
-          console.log('Offline data synced');
+          console.log('--- SYNC ---');
+          console.log(`Synced ${locations.length} locations.`);
+          console.log('Offline data synced successfully.');
         } catch (error) {
           console.error('Failed to sync offline data', error);
         }
@@ -113,6 +106,8 @@ const HomeScreen = ({ navigation }) => {
 
   const handleCheckIn = async () => {
     try {
+      console.log('--- CHECK-IN ---');
+      console.log('Starting location tracking...');
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
         accuracy: Location.Accuracy.Balanced,
         timeInterval: 15 * 1000, // 15 seconds
@@ -123,6 +118,8 @@ const HomeScreen = ({ navigation }) => {
       });
       setIsTracking(true);
       Alert.alert('Tracking Started', 'Location tracking has been enabled.');
+      console.log('--- CHECK-IN ---');
+      console.log('Location tracking started successfully.');
     } catch (error) {
       console.error('Error starting location tracking:', error);
       Alert.alert('Error', 'Could not start location tracking.');
@@ -131,10 +128,14 @@ const HomeScreen = ({ navigation }) => {
 
   const handleCheckOut = async () => {
     try {
+      console.log('--- CHECK-OUT ---');
+      console.log('Stopping location tracking...');
       await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
       setIsTracking(false);
       await syncOfflineData(); // Sync any remaining data
       Alert.alert('Tracking Stopped', 'Location tracking has been disabled.');
+      console.log('--- CHECK-OUT ---');
+      console.log('Location tracking stopped.');
     } catch (error) {
       console.error('Error stopping location tracking:', error);
       Alert.alert('Error', 'Could not stop location tracking.');
