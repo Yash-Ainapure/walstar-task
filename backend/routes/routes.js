@@ -6,6 +6,6 @@ const { syncRoute } = require('../controllers/routeController');
 // @route   POST api/routes/sync
 // @desc    Sync route data
 // @access  Private
-router.post('/sync', auth, syncRoute);
+router.post('/', auth, syncRoute);
 
 module.exports = router;

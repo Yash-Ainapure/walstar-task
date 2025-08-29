@@ -1,7 +1,8 @@
 const Route = require('../models/Route');
 
 exports.syncRoute = async (req, res) => {
-  const { date, sessions } = req.body;
+  const { route: sessions } = req.body;
+  const date = new Date().toISOString().split('T')[0]; // Use current date
   const userId = req.user.id;
 
   try {
