@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, Alert } from 'react-native';
+import { View, Text, Button, StyleSheet, Alert, Dimensions, ScrollView } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import NetInfo from '@react-native-community/netinfo';
@@ -35,6 +35,9 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
 
 const HomeScreen = ({ navigation }) => {
   const [isTracking, setIsTracking] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
 
   // ✅ Sync offline data to the server when online
   const syncOfflineData = async () => {
@@ -108,6 +111,21 @@ const HomeScreen = ({ navigation }) => {
     try {
       console.log('--- CHECK-IN ---');
       console.log('Starting location tracking...');
+      
+      // Get initial location for map
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      
+      const initialCoord = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
+      
+      setCurrentLocation(initialCoord);
+      setRouteCoordinates([initialCoord]);
+      setShowMap(true);
+      
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
         accuracy: Location.Accuracy.Balanced,
         timeInterval: 15 * 1000, // 15 seconds
@@ -132,6 +150,9 @@ const HomeScreen = ({ navigation }) => {
       console.log('Stopping location tracking...');
       await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
       setIsTracking(false);
+      setShowMap(false);
+      setRouteCoordinates([]);
+      setCurrentLocation(null);
       await syncOfflineData(); // Sync any remaining data
       Alert.alert('Tracking Stopped', 'Location tracking has been disabled.');
       console.log('--- CHECK-OUT ---');
@@ -160,9 +181,70 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
+  // Update route coordinates when new locations are received
+  useEffect(() => {
+    const updateMapLocation = async () => {
+      if (isTracking && showMap) {
+        const locations = await getLocations();
+        if (locations.length > 0) {
+          const coords = locations.map(loc => ({
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+          }));
+          setRouteCoordinates(coords);
+          // Update current location to the latest one
+          const latest = coords[coords.length - 1];
+          setCurrentLocation(latest);
+        }
+      }
+    };
+
+    const interval = setInterval(updateMapLocation, 2000); // Update every 2 seconds
+    return () => clearInterval(interval);
+  }, [isTracking, showMap]);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Home</Text>
+      
+      {showMap && currentLocation && (
+        <View style={styles.mapContainer}>
+          <View style={styles.mapHeader}>
+            <Text style={styles.mapTitle}>📍 Live Tracking</Text>
+            <Text style={styles.coordinates}>
+              {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)}
+            </Text>
+          </View>
+          
+          <ScrollView style={styles.routeList} showsVerticalScrollIndicator={false}>
+            <Text style={styles.routeTitle}>🛣️ Route Points ({routeCoordinates.length})</Text>
+            {routeCoordinates.map((coord, index) => (
+              <View key={index} style={styles.routePoint}>
+                <View style={styles.pointIndicator}>
+                  <Text style={styles.pointNumber}>{index + 1}</Text>
+                </View>
+                <View style={styles.pointDetails}>
+                  <Text style={styles.pointCoords}>
+                    {coord.latitude.toFixed(6)}, {coord.longitude.toFixed(6)}
+                  </Text>
+                  <Text style={styles.pointTime}>
+                    {index === 0 ? 'Start' : index === routeCoordinates.length - 1 ? 'Current' : `Point ${index}`}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+          
+          <View style={styles.mapFooter}>
+            <Text style={styles.statusText}>
+              {routeCoordinates.length > 1 
+                ? `📏 ${routeCoordinates.length} points tracked` 
+                : '🎯 Waiting for movement...'}
+            </Text>
+          </View>
+        </View>
+      )}
+      
       <View style={styles.buttonContainer}>
         <Button title="Check-in" onPress={handleCheckIn} disabled={isTracking} />
         <Button title="Check-out" onPress={handleCheckOut} disabled={!isTracking} />
@@ -177,6 +259,8 @@ const HomeScreen = ({ navigation }) => {
   );
 };
 
+const { width, height } = Dimensions.get('window');
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -186,6 +270,94 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     marginBottom: 20,
+  },
+  mapContainer: {
+    width: width * 0.9,
+    height: height * 0.5,
+    marginBottom: 20,
+    borderRadius: 10,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    backgroundColor: '#fff',
+  },
+  mapHeader: {
+    backgroundColor: '#007AFF',
+    padding: 15,
+    alignItems: 'center',
+  },
+  mapTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  coordinates: {
+    color: '#fff',
+    fontSize: 14,
+    fontFamily: 'monospace',
+  },
+  routeList: {
+    flex: 1,
+    padding: 10,
+  },
+  routeTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
+  routePoint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pointIndicator: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  pointNumber: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  pointDetails: {
+    flex: 1,
+  },
+  pointCoords: {
+    fontSize: 14,
+    fontFamily: 'monospace',
+    color: '#333',
+  },
+  pointTime: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  mapFooter: {
+    backgroundColor: '#f8f8f8',
+    padding: 12,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  statusText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
   buttonContainer: {
     flexDirection: 'row',
