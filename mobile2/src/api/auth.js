@@ -25,6 +25,8 @@ export const register = async (username, password) => {
 
 export const login = async (username, password) => {
   try {
+    console.log('--- LOGIN ---');
+    console.log('Logging in with:', { username, password });
     return await axios.post(`${API_URL}/login`, { username, password });
   } catch (error) {
     handleAuthError(error);

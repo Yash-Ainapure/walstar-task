@@ -7,7 +7,7 @@ export const storeRoute = async (route) => {
   try {
     const token = await SecureStore.getItemAsync('userToken');
     if (token) {
-      return axios.post(API_URL, { route }, {
+      return axios.post(`${API_URL}/sync`, { route }, {
         headers: {
           'Authorization': `Bearer ${token}`
         }

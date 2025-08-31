@@ -1,49 +1,33 @@
 const mongoose = require('mongoose');
 
-const LocationSchema = new mongoose.Schema({
-  latitude: {
-    type: Number,
-    required: true,
-  },
-  longitude: {
-    type: Number,
-    required: true,
-  },
-  timestamp: {
-    type: Date,
-    default: Date.now,
-  },
-});
+const locationSchema = new mongoose.Schema({
+  latitude: { type: Number, required: true },
+  longitude: { type: Number, required: true },
+  // Keep both UTC Date (for calculations) and IST string (for "store in Indian time only" requirement)
+  timestampUTC: { type: Date, required: true },
+  timestampIST: { type: String, required: true }
+}, { _id: false });
 
-const SessionSchema = new mongoose.Schema({
-  sessionId: {
-    type: String,
-    required: true,
-    unique: true,
-  },
-  startTime: {
-    type: Date,
-    required: true,
-  },
-  endTime: {
-    type: Date,
-  },
-  locations: [LocationSchema],
-});
+const sessionSchema = new mongoose.Schema({
+  sessionId: { type: String, required: true },
+  startTime: { type: Date, required: true },
+  endTime: { type: Date, required: true },
+  locations: [locationSchema]
+}, { _id: false });
 
-const RouteSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-  },
-  date: {
-    type: String, // YYYY-MM-DD
-    required: true,
-  },
-  sessions: [SessionSchema],
-});
+const dateSessionsSchema = new mongoose.Schema({
+  sessions: [sessionSchema]
+}, { _id: false });
 
-RouteSchema.index({ user: 1, date: 1 }, { unique: true });
+// route document: one per user (unique user)
+const routeSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  // Map of dateStr -> { sessions: [...] }
+  dates: {
+    type: Map,
+    of: dateSessionsSchema,
+    default: {}
+  }
+}, { timestamps: true });
 
-module.exports = mongoose.model('Route', RouteSchema);
+module.exports = mongoose.model('Route', routeSchema,'web-routes');
