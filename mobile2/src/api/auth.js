@@ -1,6 +1,7 @@
 import axios from 'axios';
+import API_BASE_URL from './config';
 
-const API_URL = 'http://192.168.1.20:5001/api/auth'; // Replace with your backend URL
+const API_URL = `${API_BASE_URL}/auth`;
 
 const handleAuthError = (error) => {
   if (error.response) {

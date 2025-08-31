@@ -1,7 +1,8 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import API_BASE_URL from './config';
 
-const API_URL = 'http://192.168.1.20:5001/api/routes'; // Replace with your backend URL
+const API_URL = `${API_BASE_URL}/routes`;
 
 export const storeRoute = async (route) => {
   try {

@@ -1,7 +1,10 @@
 import axios from 'axios'
 
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5001/api'
+const API_BASE = import.meta.env.VITE_API_BASE || 
+  (window.location.hostname === 'localhost' 
+    ? 'http://localhost:5001/api' 
+    : 'https://walstar-task.onrender.com/api')
 
 
 const api = axios.create({ baseURL: API_BASE });
