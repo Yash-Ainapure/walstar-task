@@ -276,7 +276,7 @@ exports.osrmRouteProxy = async (req, res) => {
     const coords = req.query.coords;
     if (!coords) return res.status(400).json({ msg: 'coords required' });
 
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${encodeURIComponent(coords)}?overview=full&geometries=geojson&steps=false`;
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${encodeURIComponent(coords)}?overview=full&geometries=geojson`;
     const r = await fetch(osrmUrl);
     if (!r.ok) throw new Error('OSRM network error');
     const json = await r.json();

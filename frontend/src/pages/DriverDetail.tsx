@@ -64,7 +64,11 @@ export default function DriverDetail() {
                                         <div className="text-sm text-gray-500">{new Date(s.startTime).toLocaleString()}</div>
                                     </div>
                                     <div>
-                                        <button onClick={() => setSelectedSession(s)} className="text-blue-600">Open</button>
+                                        <button onClick={() => {
+                                            console.log("session: ")
+                                            console.log(s)
+                                            setSelectedSession(s)
+                                        }} className="text-blue-600">Open</button>
                                     </div>
                                 </li>
                             ))}
