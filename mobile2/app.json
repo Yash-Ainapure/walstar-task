@@ -21,7 +21,12 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.mobile2"
+      "package": "com.anonymous.mobile2",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDaEOKRo298Oy7beBHpKpCf-L3y4ZHx69s"
+        }
+      }
     },
     "web": {
       "bundler": "metro",
