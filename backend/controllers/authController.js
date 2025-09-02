@@ -36,11 +36,15 @@ exports.login = async (req, res) => {
     console.log('Logging in with:', { username, password });
 
     const user = await User.findOne({ username });
-    if (!user) return res.status(400).json({ msg: 'Invalid credentials' });
+    if (!user || !user.passwordHash) return res.status(400).json({ msg: 'Invalid credentials' });
 
     const match = await bcrypt.compare(password, user.passwordHash);
-    if (!match) return res.status(400).json({ msg: 'Invalid credentials bcrypt' });
+    if (!match) return res.status(400).json({ msg: 'Invalid credentials' });
     console.log('User found:', user);
+
+    if (user.role != 'superadmin' && user.role == 'driver') {
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
 
     const token = jwt.sign({ userId: user._id.toString(), role: user.role }, jwtSecret, { expiresIn: jwtExpiresIn });
     res.json({ token });
