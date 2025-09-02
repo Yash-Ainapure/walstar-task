@@ -1,0 +1,22 @@
+name: Keep Backend Alive
+
+on:
+  schedule:
+    # Runs every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  ping-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send ping to backend
+        run: |
+          curl -X GET "${{ secrets.BACKEND_URL }}/api/cron/ping" \
+            -H "Content-Type: application/json" \
+            --fail --silent --show-error \
+            --max-time 30 \
+            || echo "Backend ping failed, but continuing..."
+        
+      - name: Log ping result
+        run: echo "Backend ping completed at $(date)"

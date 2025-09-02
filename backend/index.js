@@ -7,6 +7,7 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth');
 const routeRoutes = require('./routes/routes');
 const userRoutes = require('./routes/users');
+const cronRoutes = require('./routes/cron');
 
 const app = express();
 
@@ -43,6 +44,7 @@ connectDB(MONGO_URI);
 app.use('/api/auth', authRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/cron', cronRoutes);
 
 // Health
 app.get('/health', (req, res) => res.json({ ok: true, env: process.env.NODE_ENV || 'development' }));
