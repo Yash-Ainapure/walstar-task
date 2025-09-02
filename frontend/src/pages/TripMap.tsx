@@ -21,15 +21,15 @@ export default function TripMap() {
   async function fetchSession() {
     try {
       setLoading(true)
-      console.log('Fetching session:', userId, sessionId)
+      // console.log('Fetching session:', userId, sessionId)
       const res = await getSessionById(userId, sessionId!)
-      console.log('Session API response:', res)
-      console.log('Session data:', res.data)
+      // console.log('Session API response:', res)
+      // console.log('Session data:', res.data)
       
       // The API returns { date: string, session: Session }
       const sessionData = res.data.session
       
-      console.log('Final session data:', sessionData)
+      // console.log('Final session data:', sessionData)
       setSession(sessionData)
     } catch (e) {
       console.error('Error fetching session:', e)
@@ -71,10 +71,10 @@ export default function TripMap() {
   const { start, end } = getSessionLocations(session)
   
   // Debug logging
-  console.log('Session object:', session)
-  console.log('Session locations:', session.locations)
-  console.log('Calculated distance:', distance)
-  console.log('Calculated duration:', duration)
+  // console.log('Session object:', session)
+  // console.log('Session locations:', session.locations)
+  // console.log('Calculated distance:', distance)
+  // console.log('Calculated duration:', duration)
 
   return (
     <div className="min-h-screen bg-gray-50">

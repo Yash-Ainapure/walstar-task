@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, Tooltip, useMap } from 'react-leaflet'
-import L, { LatLngExpression } from 'leaflet'
+import L from 'leaflet'
+import type { LatLngExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Session } from '../types'
-import { osrmRoute } from '../api/routesApi'
 
 function haversineDistance(a: [number, number], b: [number, number]): number {
     const R = 6371000 // Earth's radius in meters
@@ -81,7 +81,6 @@ function splitPolylineByGap(points: [number, number][], maxGapMeters = 100): [nu
 }
 
 export default function MapSession({ session }: { session: Session }) {
-    const [routeGeo, setRouteGeo] = useState<[number, number][] | null>(null)
     const [distanceMeters, setDistanceMeters] = useState<number | null>(null)
 
     // raw latlng points
