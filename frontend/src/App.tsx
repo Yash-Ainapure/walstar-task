@@ -4,6 +4,7 @@ import LoginPage from './pages/Login'
 import DriversList from './pages/DriversList'
 import DriverDetail from './pages/DriverDetail'
 import EditDriver from './pages/EditDriver'
+import TripMap from './pages/TripMap'
 
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -22,6 +23,7 @@ export default function App() {
                 <Route path="/drivers" element={<RequireAuth><DriversList /></RequireAuth>} />
                 <Route path="/drivers/:id" element={<RequireAuth><DriverDetail /></RequireAuth>} />
                 <Route path="/drivers/:id/edit" element={<RequireAuth><EditDriver /></RequireAuth>} />
+                <Route path="/drivers/:id/trip/:sessionId" element={<RequireAuth><TripMap /></RequireAuth>} />
             </Routes>
         </div>
     )

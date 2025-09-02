@@ -24,5 +24,10 @@ router.get('/:userId/:date', protect, routeController.getSessionsByDate);
 // get session by sessionId
 router.get('/:userId/session/:sessionId', protect, routeController.getSessionById);
 
+// update session name
+router.patch('/:userId/session/:sessionId', protect, routeController.updateSessionName);
+
+// delete session
+router.delete('/:userId/session/:sessionId', protect, routeController.deleteSession);
 
 module.exports = router;

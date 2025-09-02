@@ -12,7 +12,8 @@ const sessionSchema = new mongoose.Schema({
   sessionId: { type: String, required: true },
   startTime: { type: Date, required: true },
   endTime: { type: Date, required: true },
-  locations: [locationSchema]
+  locations: [locationSchema],
+  name: { type: String }
 }, { _id: false });
 
 const dateSessionsSchema = new mongoose.Schema({

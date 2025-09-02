@@ -268,6 +268,93 @@ exports.getSessionById = async (req, res) => {
 };
 
 /**
+ * updateSessionName
+ * - PATCH /api/routes/:userId/session/:sessionId
+ * - Updates the name/title of a session
+ */
+exports.updateSessionName = async (req, res) => {
+  try {
+    const authUser = req.user;
+    let targetUserId = req.params.userId;
+    const { sessionId } = req.params;
+    const { name } = req.body;
+
+    if (targetUserId === 'me') targetUserId = authUser.id;
+    if (authUser.role !== 'superadmin' && authUser.id !== targetUserId) {
+      return res.status(403).json({ msg: 'No permission' });
+    }
+
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ msg: 'Name is required' });
+    }
+
+    const routeDoc = await Route.findOne({ user: targetUserId });
+    if (!routeDoc) return res.status(404).json({ msg: 'No route doc' });
+
+    let sessionFound = false;
+    for (const [dateKey, dateBucket] of routeDoc.dates.entries()) {
+      const session = (dateBucket.sessions || []).find(s => s.sessionId === sessionId);
+      if (session) {
+        session.name = name;
+        sessionFound = true;
+        break;
+      }
+    }
+
+    if (!sessionFound) {
+      return res.status(404).json({ msg: 'Session not found' });
+    }
+
+    await routeDoc.save();
+    return res.json({ msg: 'Session name updated', sessionId, name });
+  } catch (err) {
+    console.error('updateSessionName error', err);
+    res.status(500).json({ msg: 'Server error' });
+  }
+};
+
+/**
+ * deleteSession
+ * - DELETE /api/routes/:userId/session/:sessionId
+ * - Deletes a session completely
+ */
+exports.deleteSession = async (req, res) => {
+  try {
+    const authUser = req.user;
+    let targetUserId = req.params.userId;
+    const { sessionId } = req.params;
+
+    if (targetUserId === 'me') targetUserId = authUser.id;
+    if (authUser.role !== 'superadmin' && authUser.id !== targetUserId) {
+      return res.status(403).json({ msg: 'No permission' });
+    }
+
+    const routeDoc = await Route.findOne({ user: targetUserId });
+    if (!routeDoc) return res.status(404).json({ msg: 'No route doc' });
+
+    let sessionFound = false;
+    for (const [dateKey, dateBucket] of routeDoc.dates.entries()) {
+      const sessionIndex = (dateBucket.sessions || []).findIndex(s => s.sessionId === sessionId);
+      if (sessionIndex !== -1) {
+        dateBucket.sessions.splice(sessionIndex, 1);
+        sessionFound = true;
+        break;
+      }
+    }
+
+    if (!sessionFound) {
+      return res.status(404).json({ msg: 'Session not found' });
+    }
+
+    await routeDoc.save();
+    return res.json({ msg: 'Session deleted', sessionId });
+  } catch (err) {
+    console.error('deleteSession error', err);
+    res.status(500).json({ msg: 'Server error' });
+  }
+};
+
+/**
  * OSRM proxy (unchanged)
  * GET /api/routes/osrm/route?coords=lon,lat;lon,lat;...
  */

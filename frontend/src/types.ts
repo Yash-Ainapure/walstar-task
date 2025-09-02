@@ -25,6 +25,7 @@ sessionId: string;
 startTime: string;
 endTime: string;
 locations: LocationPoint[];
+name?: string;
 }
 
 

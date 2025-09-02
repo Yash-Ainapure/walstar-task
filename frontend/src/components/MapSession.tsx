@@ -85,7 +85,7 @@ export default function MapSession({ session }: { session: Session }) {
     const [distanceMeters, setDistanceMeters] = useState<number | null>(null)
 
     // raw latlng points
-    const latlngs = useMemo(() => session.locations.map(l => [l.latitude, l.longitude] as [number, number]), [session])
+    const latlngs = useMemo(() => session.locations?.map(l => [l.latitude, l.longitude] as [number, number]) || [], [session])
     const filteredLatlngs = useMemo(() => filterDuplicates(latlngs), [latlngs])
     const center: LatLngExpression = filteredLatlngs.length ? filteredLatlngs[0] : [0, 0]
 
@@ -152,24 +152,28 @@ export default function MapSession({ session }: { session: Session }) {
     const polylineSegments = splitPolylineByGap(filteredLatlngs, 200)
 
     return (
-        <div className="w-full h-[500px] rounded shadow">
-            <MapContainer center={center} zoom={17} style={{ height: '100%', width: '100%' }}>
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap contributors' />
+        <div className="w-full h-full flex flex-col">
+            <div className="flex-1 min-h-0">
+                <MapContainer center={center} zoom={17} style={{ height: '100%', width: '100%' }}>
+                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap contributors' />
 
-                {polylineSegments.map((seg, idx) => (
-                    <Polyline key={idx} positions={seg} color="blue" />
-                ))}
+                    {polylineSegments.map((seg, idx) => (
+                        <Polyline key={idx} positions={seg} color="blue" />
+                    ))}
 
-                {filteredLatlngs.length >= 1 && <Marker position={filteredLatlngs[0]} icon={startIcon}><Tooltip>Start</Tooltip></Marker>}
-                {filteredLatlngs.length >= 2 && <Marker position={filteredLatlngs[filteredLatlngs.length - 1]} icon={endIcon}><Tooltip>End</Tooltip></Marker>}
+                    {filteredLatlngs.length >= 1 && <Marker position={filteredLatlngs[0]} icon={startIcon}><Tooltip>Start</Tooltip></Marker>}
+                    {filteredLatlngs.length >= 2 && <Marker position={filteredLatlngs[filteredLatlngs.length - 1]} icon={endIcon}><Tooltip>End</Tooltip></Marker>}
 
-                {/* <FitBounds positions={polylinePositions} /> */}
-                <FitBounds positions={filteredLatlngs} />
-            </MapContainer>
+                    {/* <FitBounds positions={polylinePositions} /> */}
+                    <FitBounds positions={filteredLatlngs} />
+                </MapContainer>
+            </div>
 
-            <div className="p-2">
-                <div>Points: {session.locations.length}</div>
-                <div>Distance: {distanceMeters ? (distanceMeters / 1000).toFixed(3) + ' km' : 'calculating...'}</div>
+            <div className="p-3 bg-gray-50 border-t text-sm">
+                <div className="flex justify-between">
+                    <span>Points: {session.locations?.length || 0}</span>
+                    <span>Distance: {distanceMeters ? (distanceMeters / 1000).toFixed(3) + ' km' : 'calculating...'}</span>
+                </div>
             </div>
         </div>
     )
