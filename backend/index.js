@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const connectDB = require('./config/db');
 
 const authRoutes = require('./routes/auth');
@@ -10,6 +11,9 @@ const userRoutes = require('./routes/users');
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const PORT = process.env.PORT || 5001;
 const MONGO_URI = process.env.MONGO_URI;

@@ -1,17 +1,20 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import React, { useState } from 'react';
+import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import { login } from '../api/auth';
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
     try {
+      setLoading(true);
       const response = await login(username, password);
       const { token } = response.data;
 
+      setLoading(false);
       // Store the token securely
       await SecureStore.setItemAsync('userToken', token);
 
@@ -19,6 +22,7 @@ const LoginScreen = ({ navigation }) => {
     } catch (error) {
       Alert.alert('Login Failed', 'Invalid credentials');
       console.error(error);
+      setLoading(false);
     }
   };
 
@@ -28,6 +32,8 @@ const LoginScreen = ({ navigation }) => {
       <TextInput
         style={styles.input}
         placeholder="Username"
+        placeholderTextColor="gray"
+        textColor="black"
         value={username}
         onChangeText={setUsername}
         autoCapitalize="none"
@@ -35,15 +41,13 @@ const LoginScreen = ({ navigation }) => {
       <TextInput
         style={styles.input}
         placeholder="Password"
+        placeholderTextColor="gray"
+        textColor="black"
         value={password}
         onChangeText={setPassword}
         secureTextEntry
       />
-      <Button title="Login" onPress={handleLogin} />
-      <Button
-        title="Don't have an account? Register"
-        onPress={() => navigation.navigate('Register')}
-      />
+      <Button title={loading ? 'Logging in...' : 'Login'} onPress={handleLogin} disabled={loading} />
     </View>
   );
 };
@@ -65,6 +69,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 12,
     paddingHorizontal: 8,
+    color: 'black',
   },
 });
 

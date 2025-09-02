@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import LoginPage from './pages/Login'
 import DriversList from './pages/DriversList'
 import DriverDetail from './pages/DriverDetail'
+import EditDriver from './pages/EditDriver'
 
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -18,7 +19,9 @@ export default function App() {
             <Routes>
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/" element={<RequireAuth><DriversList /></RequireAuth>} />
+                <Route path="/drivers" element={<RequireAuth><DriversList /></RequireAuth>} />
                 <Route path="/drivers/:id" element={<RequireAuth><DriverDetail /></RequireAuth>} />
+                <Route path="/drivers/:id/edit" element={<RequireAuth><EditDriver /></RequireAuth>} />
             </Routes>
         </div>
     )

@@ -9,7 +9,7 @@ export default function DriversList() {
     const [users, setUsers] = useState<User[]>([])
     const [loading, setLoading] = useState(false)
     const [creating, setCreating] = useState(false)
-    const [form, setForm] = useState({ username: '', password: '', name: '' })
+    const [form, setForm] = useState({ username: '', password: '', name: '', phone: '', address: '', profileImage: null as File | null })
     const nav = useNavigate()
 
 
@@ -30,8 +30,19 @@ export default function DriversList() {
         e.preventDefault()
         setCreating(true)
         try {
-            await createUser({ username: form.username, password: form.password, name: form.name, role: 'driver' })
-            setForm({ username: '', password: '', name: '' })
+            const formData = new FormData()
+            formData.append('username', form.username)
+            formData.append('password', form.password)
+            formData.append('name', form.name)
+            formData.append('phone', form.phone)
+            formData.append('address', form.address)
+            formData.append('role', 'driver')
+            if (form.profileImage) {
+                formData.append('profileImage', form.profileImage)
+            }
+            
+            await createUser(formData)
+            setForm({ username: '', password: '', name: '', phone: '', address: '', profileImage: null })
             fetchUsers()
         } catch (err) { console.error(err) }
         setCreating(false)
@@ -55,11 +66,63 @@ export default function DriversList() {
 
                 <div className="bg-white p-4 rounded shadow mb-6">
                     <h3 className="font-medium mb-2">Create driver</h3>
-                    <form onSubmit={handleCreate} className="flex gap-2">
-                        <input className="border p-2 flex-1" placeholder="email" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
-                        <input className="border p-2" placeholder="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
-                        <input className="border p-2" placeholder="name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-                        <button className="bg-green-600 text-white px-4" disabled={creating}>{creating ? 'Creating...' : 'Create'}</button>
+                    <form onSubmit={handleCreate} className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <input 
+                                className="border p-2 rounded" 
+                                placeholder="Email" 
+                                type="email"
+                                value={form.username} 
+                                onChange={e => setForm({ ...form, username: e.target.value })} 
+                                required
+                            />
+                            <input 
+                                className="border p-2 rounded" 
+                                placeholder="Password" 
+                                type="password"
+                                value={form.password} 
+                                onChange={e => setForm({ ...form, password: e.target.value })} 
+                                required
+                            />
+                            <input 
+                                className="border p-2 rounded" 
+                                placeholder="Full Name" 
+                                value={form.name} 
+                                onChange={e => setForm({ ...form, name: e.target.value })} 
+                                required
+                            />
+                            <input 
+                                className="border p-2 rounded" 
+                                placeholder="Phone Number" 
+                                type="tel"
+                                value={form.phone} 
+                                onChange={e => setForm({ ...form, phone: e.target.value })} 
+                                required
+                            />
+                        </div>
+                        <input 
+                            className="border p-2 rounded w-full" 
+                            placeholder="Address" 
+                            value={form.address} 
+                            onChange={e => setForm({ ...form, address: e.target.value })} 
+                            required
+                        />
+                        <div className="flex items-center gap-3">
+                            <label className="text-sm font-medium text-gray-700">Profile Image:</label>
+                            <input 
+                                type="file" 
+                                accept="image/*"
+                                onChange={e => setForm({ ...form, profileImage: e.target.files?.[0] || null })}
+                                className="border p-2 rounded flex-1"
+                            />
+                        </div>
+                        <button 
+                            type="submit"
+                            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 disabled:opacity-50" 
+                            disabled={creating}
+                        >
+                            {creating ? 'Creating...' : 'Create Driver'}
+                        </button>
                     </form>
                 </div>
 
@@ -69,14 +132,32 @@ export default function DriversList() {
                     {loading ? <div>Loading...</div> : (
                         <ul className="divide-y">
                             {users.map(u => (
-                                <li key={u._id} className="py-3 flex items-center justify-between">
-                                    <div>
-                                        <div className="font-medium">{u.name || u.username}</div>
-                                        <div className="text-sm text-gray-500">{u.username}</div>
+                                <li key={u._id} className="py-4 flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        {u.photoUrl ? (
+                                            <img 
+                                                src={`http://localhost:5001${u.photoUrl}`} 
+                                                alt={u.name || u.username}
+                                                className="w-12 h-12 rounded-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center">
+                                                <span className="text-gray-500 text-sm">
+                                                    {(u.name || u.username).charAt(0).toUpperCase()}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <div>
+                                            <div className="font-medium">{u.name || u.username}</div>
+                                            <div className="text-sm text-gray-500">{u.username}</div>
+                                            {u.phone && <div className="text-sm text-gray-500">📞 {u.phone}</div>}
+                                            {u.address && <div className="text-sm text-gray-500">📍 {u.address}</div>}
+                                        </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <Link to={`/drivers/${u._id}`} className="text-blue-600">View</Link>
-                                        <button onClick={() => handleDelete(u._id)} className="text-red-600">Delete</button>
+                                        <Link to={`/drivers/${u._id}`} className="text-blue-600 hover:underline">View</Link>
+                                        <Link to={`/drivers/${u._id}/edit`} className="text-green-600 hover:underline">Edit</Link>
+                                        <button onClick={() => handleDelete(u._id)} className="text-red-600 hover:underline">Delete</button>
                                     </div>
                                 </li>
                             ))}

@@ -26,13 +26,21 @@ exports.getUserById = async (req, res) => {
 
 exports.createUser = async (req, res) => {
   try {
-    const { username, password, name, phone, address, photoUrl, role } = req.body;
+    const { username, password, name, phone, address, role } = req.body;
     if (!username || !password) return res.status(400).json({ msg: 'username and password required' });
 
     const exists = await User.findOne({ username });
     if (exists) return res.status(400).json({ msg: 'User already exists' });
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    
+    // Handle uploaded image
+    let photoUrl = null;
+    if (req.file) {
+      // Generate URL for the uploaded file
+      photoUrl = `/uploads/${req.file.filename}`;
+    }
+
     const user = new User({ username, passwordHash, name, phone, address, photoUrl, role });
     await user.save();
     res.status(201).json({ msg: 'User created', user: { ...user.toObject(), passwordHash: undefined } });
@@ -44,11 +52,16 @@ exports.createUser = async (req, res) => {
 
 exports.updateUser = async (req, res) => {
   try {
-    const { username, password, name, phone, address, photoUrl, role } = req.body;
-    const update = { username, name, phone, address, photoUrl, role };
+    const { username, password, name, phone, address, role } = req.body;
+    const update = { username, name, phone, address, role };
 
     if (password) {
       update.passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    }
+
+    // Handle uploaded image
+    if (req.file) {
+      update.photoUrl = `/uploads/${req.file.filename}`;
     }
 
     const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).select('-passwordHash');

@@ -46,8 +46,7 @@
       ],
       "react-native-background-geolocation",
       "expo-sqlite",
-      "expo-secure-store",
-      "expo-maps"
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
