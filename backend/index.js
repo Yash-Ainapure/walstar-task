@@ -11,15 +11,25 @@ const cronRoutes = require('./routes/cron');
 
 const app = express();
 
-// Configure CORS to allow requests from Vercel and localhost
+// ✅ Dynamic CORS setup
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'https://walstar-task.vercel.app',
+  'https://walstar-task-jf7cthlpx-yash-ainapures-projects.vercel.app'
+];
+
 const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://walstar-task-jf7cthlpx-yash-ainapures-projects.vercel.app',
-    /^https:\/\/walstar-task-.*\.vercel\.app$/,
-    /^https:\/\/.*-yash-ainapures-projects\.vercel\.app$/
-  ],
+  origin: (origin, callback) => {
+    const walstarPattern = /^https:\/\/walstar-task-[^.]+\.vercel\.app$/;
+    const yashProjectsPattern = /^https:\/\/.*-yash-ainapures-projects\.vercel\.app$/;
+
+    if (!origin || allowedOrigins.includes(origin) || walstarPattern.test(origin) || yashProjectsPattern.test(origin)) {
+      callback(null, true); // ✅ Allow request
+    } else {
+      callback(new Error('Not allowed by CORS')); // ❌ Block request
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
