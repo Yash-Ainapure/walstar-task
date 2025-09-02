@@ -4,6 +4,23 @@ import { useNavigate } from 'react-router-dom'
 import { listUsers, createUser, deleteUser } from '../api/users'
 import { Link } from 'react-router-dom'
 
+// Helper function to get full image URL
+function getImageUrl(photoUrl: string | undefined): string | null {
+    if (!photoUrl) return null
+    
+    // If it's already a full URL, return as is
+    if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
+        return photoUrl
+    }
+    
+    // Convert relative path to full URL - static files are served from server root, not /api
+    const baseUrl = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5001' 
+        : 'https://walstar-task.onrender.com'
+    
+    return `${baseUrl}${photoUrl}`
+}
+
 
 export default function DriversList() {
     const [users, setUsers] = useState<User[]>([])
@@ -134,11 +151,17 @@ export default function DriversList() {
                             {users.map(u => (
                                 <li key={u._id} className="py-4 flex items-center justify-between">
                                     <div className="flex items-center gap-4">
-                                        {u.photoUrl ? (
+                                        {getImageUrl(u.photoUrl) ? (
                                             <img 
-                                                src={`http://localhost:5001${u.photoUrl}`} 
+                                                src={getImageUrl(u.photoUrl)!} 
                                                 alt={u.name || u.username}
                                                 className="w-12 h-12 rounded-full object-cover"
+                                                onError={(e) => {
+                                                    // Fallback to default avatar if image fails to load
+                                                    console.log('Image failed to load:', getImageUrl(u.photoUrl))
+                                                    e.currentTarget.style.display = 'none'
+                                                    e.currentTarget.nextElementSibling?.classList.remove('hidden')
+                                                }}
                                             />
                                         ) : (
                                             <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center">
