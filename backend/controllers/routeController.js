@@ -1,10 +1,15 @@
-// controllers/routeController.js
 const Route = require('../models/Route');
 const User = require('../models/User');
 
-// Helper: convert incoming ISO to Date (UTC) and IST string
 function toUTCandIST(isodate) {
-  const d = isodate ? new Date(isodate) : new Date();
+  let dateInput = isodate;
+
+  // Handle MongoDB $date format: { '$date': '2025-08-31T10:20:00.000Z' }
+  if (isodate && typeof isodate === 'object' && isodate.$date) {
+    dateInput = isodate.$date;
+  }
+
+  const d = dateInput ? new Date(dateInput) : new Date();
   if (isNaN(d.getTime())) throw new Error('Invalid date');
   const ist = d.toLocaleString('sv', { timeZone: 'Asia/Kolkata' }).replace(' ', 'T') + '+05:30';
   return { timestampUTC: d, timestampIST: ist };
@@ -26,6 +31,7 @@ async function ensureRouteDoc(userId) {
  * - If `username` is present and caller is superadmin, session will be stored for that username.
  * - Otherwise stores under the authenticated user (req.user.id).
  */
+// backend/controllers/routeController.js
 exports.syncRoute = async (req, res) => {
   try {
     const authUser = req.user; // { id, username, role }
@@ -49,8 +55,8 @@ exports.syncRoute = async (req, res) => {
 
     const sessionId = providedSessionId || `sess-${Date.now().toString(36)}`;
 
-    // Map locations to stored format (timestampUTC + timestampIST)
-    const storedLocations = routeArr.map(loc => {
+    // Map new incoming locations to the correct format
+    const storedLocations = routeArr.map((loc) => {
       const { timestampUTC, timestampIST } = toUTCandIST(loc.timestamp || new Date());
       return {
         latitude: loc.latitude,
@@ -63,7 +69,44 @@ exports.syncRoute = async (req, res) => {
     const startTime = storedLocations[0].timestampUTC;
     const endTime = storedLocations[storedLocations.length - 1].timestampUTC;
 
+    // Fetch the main route document
     const routeDoc = await ensureRouteDoc(ownerId);
+
+    // --- START: Data Cleaning and Healing Logic ---
+    // Clean any existing data that was stored in the incorrect format
+    if (routeDoc.dates && routeDoc.dates.size > 0) {
+      // Use for...of loops for direct, in-place mutation
+      for (const [dateKey, dateData] of routeDoc.dates.entries()) {
+        if (dateData.sessions) {
+          // Iterate through each session
+          for (const session of dateData.sessions) {
+            // Fix session start and end times if they are objects
+            if (session.startTime && typeof session.startTime === 'object' && session.startTime.$date) {
+              session.startTime = new Date(session.startTime.$date);
+            }
+            if (session.endTime && typeof session.endTime === 'object' && session.endTime.$date) {
+              session.endTime = new Date(session.endTime.$date);
+            }
+
+            if (session.locations) {
+              // Iterate through each location within the session
+              for (const loc of session.locations) {
+                // Fix the timestampUTC for each location
+                if (loc.timestampUTC && typeof loc.timestampUTC === 'object' && loc.timestampUTC.$date) {
+                  loc.timestampUTC = new Date(loc.timestampUTC.$date);
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Explicitly tell Mongoose that the 'dates' map has been modified.
+      routeDoc.markModified('dates');
+    }
+    // --- END: Data Cleaning and Healing Logic ---
+    
+    // Add the new session data
     if (!routeDoc.dates.has(dateKey)) {
       routeDoc.dates.set(dateKey, { sessions: [] });
     }
@@ -79,7 +122,8 @@ exports.syncRoute = async (req, res) => {
 
     return res.json({ msg: 'Route data synced successfully', sessionId, date: dateKey });
   } catch (err) {
-    console.error('syncRoute error', err);
+    // Note: Changed to console.warn to distinguish from critical crashes
+    console.warn('syncRoute error', err);
     return res.status(500).json({ msg: 'Server Error' });
   }
 };

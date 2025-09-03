@@ -42,9 +42,9 @@ exports.login = async (req, res) => {
     if (!match) return res.status(400).json({ msg: 'Invalid credentials' });
     console.log('User found:', user);
 
-    if (user.role != 'superadmin' && user.role == 'driver') {
-      return res.status(400).json({ msg: 'Invalid credentials' });
-    }
+    // if (user.role != 'superadmin' && user.role == 'driver') {
+    //   return res.status(400).json({ msg: 'Invalid credentials' });
+    // }
 
     const token = jwt.sign({ userId: user._id.toString(), role: user.role }, jwtSecret, { expiresIn: jwtExpiresIn });
     res.json({ token });
