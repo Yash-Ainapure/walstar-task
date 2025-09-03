@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, Alert, Dimensions, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Dimensions, SafeAreaView, StatusBar } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import NetInfo from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
 import { initDB, writeLocation, getLocations, deleteAllLocations } from '../db/database';
 import { storeRoute } from '../api/routes';
+import MapWebView from '../components/MapWebView';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -38,6 +39,7 @@ const HomeScreen = ({ navigation }) => {
   const [showMap, setShowMap] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
+  const [trackingStartTime, setTrackingStartTime] = useState(null);
 
   // ✅ Sync offline data to the server when online
   const syncOfflineData = async () => {
@@ -88,6 +90,20 @@ const HomeScreen = ({ navigation }) => {
         // Check if tracking is already running
         const isAlreadyTracking = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
         setIsTracking(isAlreadyTracking);
+        
+        // If already tracking, restore map state and get current locations
+        if (isAlreadyTracking) {
+          setShowMap(true);
+          const locations = await getLocations();
+          if (locations.length > 0) {
+            const coords = locations.map(loc => ({
+              latitude: loc.latitude,
+              longitude: loc.longitude,
+            }));
+            setRouteCoordinates(coords);
+            setCurrentLocation(coords[coords.length - 1]);
+          }
+        }
       } catch (error) {
         console.error('Error during configuration:', error);
       }
@@ -125,6 +141,7 @@ const HomeScreen = ({ navigation }) => {
       setCurrentLocation(initialCoord);
       setRouteCoordinates([initialCoord]);
       setShowMap(true);
+      setTrackingStartTime(new Date());
       
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
         accuracy: Location.Accuracy.Balanced,
@@ -153,6 +170,7 @@ const HomeScreen = ({ navigation }) => {
       setShowMap(false);
       setRouteCoordinates([]);
       setCurrentLocation(null);
+      setTrackingStartTime(null);
       await syncOfflineData(); // Sync any remaining data
       Alert.alert('Tracking Stopped', 'Location tracking has been disabled.');
       console.log('--- CHECK-OUT ---');
@@ -203,59 +221,85 @@ const HomeScreen = ({ navigation }) => {
     return () => clearInterval(interval);
   }, [isTracking, showMap]);
 
+  const formatDuration = (startTime) => {
+    if (!startTime) return '00:00:00';
+    const now = new Date();
+    const diff = now - startTime;
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Home</Text>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
       
-      {showMap && currentLocation && (
+      <View style={styles.header}>
+        <Text style={styles.title}>WalStar Tracking</Text>
+        <View style={styles.statusContainer}>
+          <View style={[styles.statusDot, { backgroundColor: isTracking ? '#28a745' : '#dc3545' }]} />
+          <Text style={styles.statusText}>
+            {isTracking ? 'Active Tracking' : 'Ready to Track'}
+          </Text>
+        </View>
+        {isTracking && trackingStartTime && (
+          <Text style={styles.durationText}>
+            Duration: {formatDuration(trackingStartTime)}
+          </Text>
+        )}
+      </View>
+
+      {showMap && currentLocation ? (
         <View style={styles.mapContainer}>
-          <View style={styles.mapHeader}>
-            <Text style={styles.mapTitle}>📍 Live Tracking</Text>
-            <Text style={styles.coordinates}>
-              {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)}
-            </Text>
-          </View>
-          
-          <ScrollView style={styles.routeList} showsVerticalScrollIndicator={false}>
-            <Text style={styles.routeTitle}>🛣️ Route Points ({routeCoordinates.length})</Text>
-            {routeCoordinates.map((coord, index) => (
-              <View key={index} style={styles.routePoint}>
-                <View style={styles.pointIndicator}>
-                  <Text style={styles.pointNumber}>{index + 1}</Text>
-                </View>
-                <View style={styles.pointDetails}>
-                  <Text style={styles.pointCoords}>
-                    {coord.latitude.toFixed(6)}, {coord.longitude.toFixed(6)}
-                  </Text>
-                  <Text style={styles.pointTime}>
-                    {index === 0 ? 'Start' : index === routeCoordinates.length - 1 ? 'Current' : `Point ${index}`}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-          
-          <View style={styles.mapFooter}>
-            <Text style={styles.statusText}>
-              {routeCoordinates.length > 1 
-                ? `📏 ${routeCoordinates.length} points tracked` 
-                : '🎯 Waiting for movement...'}
-            </Text>
-          </View>
+          <MapWebView 
+            currentLocation={currentLocation}
+            routeCoordinates={routeCoordinates}
+            isVisible={showMap}
+          />
+        </View>
+      ) : (
+        <View style={styles.placeholderContainer}>
+          <Text style={styles.placeholderIcon}>🗺️</Text>
+          <Text style={styles.placeholderTitle}>Map View</Text>
+          <Text style={styles.placeholderText}>
+            {isTracking ? 'Getting location...' : 'Tap Check-in to start tracking and view your route on the map'}
+          </Text>
         </View>
       )}
       
-      <View style={styles.buttonContainer}>
-        <Button title="Check-in" onPress={handleCheckIn} disabled={isTracking} />
-        <Button title="Check-out" onPress={handleCheckOut} disabled={!isTracking} />
+      <View style={styles.controlsContainer}>
+        <TouchableOpacity 
+          style={[styles.primaryButton, isTracking && styles.disabledButton]} 
+          onPress={handleCheckIn} 
+          disabled={isTracking}
+        >
+          <Text style={[styles.buttonText, isTracking && styles.disabledButtonText]}>
+            🚀 Check In
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.primaryButton, styles.checkoutButton, !isTracking && styles.disabledButton]} 
+          onPress={handleCheckOut} 
+          disabled={!isTracking}
+        >
+          <Text style={[styles.buttonText, !isTracking && styles.disabledButtonText]}>
+            🏁 Check Out
+          </Text>
+        </TouchableOpacity>
       </View>
-      <View style={styles.debugButton}>
-        <Button title="View Local Data" onPress={handleViewLocalData} />
+      
+      <View style={styles.secondaryControls}>
+        <TouchableOpacity style={styles.secondaryButton} onPress={handleViewLocalData}>
+          <Text style={styles.secondaryButtonText}>📊 View Data</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={[styles.secondaryButton, styles.logoutButton]} onPress={handleLogout}>
+          <Text style={[styles.secondaryButtonText, styles.logoutButtonText]}>🚪 Logout</Text>
+        </TouchableOpacity>
       </View>
-      <View style={styles.logoutButton}>
-        <Button title="Logout" onPress={handleLogout} color="#f44336" />
-      </View>
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -264,20 +308,103 @@ const { width, height } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: '#f8f9fa',
+  },
+  header: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
     alignItems: 'center',
   },
   title: {
     fontSize: 24,
-    marginBottom: 20,
+    fontWeight: 'bold',
+    color: '#212529',
+    marginBottom: 8,
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  statusText: {
+    fontSize: 16,
+    color: '#495057',
+    fontWeight: '500',
+  },
+  durationText: {
+    fontSize: 14,
+    color: '#6c757d',
+    fontFamily: 'monospace',
   },
   mapContainer: {
-    width: width * 0.9,
-    height: height * 0.5,
-    marginBottom: 20,
-    borderRadius: 10,
+    flex: 1,
+    margin: 15,
+    borderRadius: 12,
     overflow: 'hidden',
-    elevation: 5,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+  },
+  placeholderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    margin: 15,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 40,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+  },
+  placeholderIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  placeholderTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#495057',
+    marginBottom: 8,
+  },
+  placeholderText: {
+    fontSize: 16,
+    color: '#6c757d',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  controlsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    paddingBottom: 15,
+    gap: 15,
+  },
+  primaryButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -285,92 +412,47 @@ const styles = StyleSheet.create({
     },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
-    backgroundColor: '#fff',
   },
-  mapHeader: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    alignItems: 'center',
+  checkoutButton: {
+    backgroundColor: '#dc3545',
   },
-  mapTitle: {
+  disabledButton: {
+    backgroundColor: '#e9ecef',
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  buttonText: {
     color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  coordinates: {
-    color: '#fff',
-    fontSize: 14,
-    fontFamily: 'monospace',
-  },
-  routeList: {
-    flex: 1,
-    padding: 10,
-  },
-  routeTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#333',
   },
-  routePoint: {
+  disabledButtonText: {
+    color: '#adb5bd',
+  },
+  secondaryControls: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    paddingHorizontal: 15,
+    paddingBottom: 20,
+    gap: 15,
   },
-  pointIndicator: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  pointNumber: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  pointDetails: {
+  secondaryButton: {
     flex: 1,
-  },
-  pointCoords: {
-    fontSize: 14,
-    fontFamily: 'monospace',
-    color: '#333',
-  },
-  pointTime: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  mapFooter: {
-    backgroundColor: '#f8f8f8',
-    padding: 12,
+    backgroundColor: '#6c757d',
+    paddingVertical: 12,
+    borderRadius: 8,
     alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
   },
-  statusText: {
+  secondaryButtonText: {
+    color: '#fff',
     fontSize: 14,
-    color: '#666',
     fontWeight: '500',
   },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '60%',
-    marginBottom: 20,
-  },
-  debugButton: {
-    marginBottom: 40,
-  },
   logoutButton: {
-
-  }
+    backgroundColor: '#dc3545',
+  },
+  logoutButtonText: {
+    color: '#fff',
+  },
 });
 
 export default HomeScreen;
