@@ -152,7 +152,7 @@ const HomeScreen = ({ navigation }) => {
         showsBackgroundLocationIndicator: true,
       });
       setIsTracking(true);
-      Alert.alert('Tracking Started', 'Location tracking has been enabled.');
+      // Alert.alert('Tracking Started', 'Location tracking has been enabled.');
       console.log('--- CHECK-IN ---');
       console.log('Location tracking started successfully.');
     } catch (error) {
@@ -172,7 +172,7 @@ const HomeScreen = ({ navigation }) => {
       setCurrentLocation(null);
       setTrackingStartTime(null);
       await syncOfflineData(); // Sync any remaining data
-      Alert.alert('Tracking Stopped', 'Location tracking has been disabled.');
+      // Alert.alert('Tracking Stopped', 'Location tracking has been disabled.');
       console.log('--- CHECK-OUT ---');
       console.log('Location tracking stopped.');
     } catch (error) {
@@ -319,10 +319,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#212529',
     marginBottom: 8,
+    marginTop:12,
   },
   statusContainer: {
     flexDirection: 'row',
