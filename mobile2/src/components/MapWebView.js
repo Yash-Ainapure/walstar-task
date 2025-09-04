@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
+import BlinkingCircle from '../components/BlinkingCircle';
 
-const MapWebView = ({ currentLocation, routeCoordinates, isVisible }) => {
+const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking }) => {
   const [mapReady, setMapReady] = useState(false);
 
   if (!isVisible || !currentLocation) {
@@ -11,13 +12,13 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible }) => {
 
   // Validate and sanitize coordinates
   const validateCoordinate = (coord) => {
-    return coord && 
-           typeof coord.latitude === 'number' && 
-           typeof coord.longitude === 'number' &&
-           !isNaN(coord.latitude) && 
-           !isNaN(coord.longitude) &&
-           coord.latitude >= -90 && coord.latitude <= 90 &&
-           coord.longitude >= -180 && coord.longitude <= 180;
+    return coord &&
+      typeof coord.latitude === 'number' &&
+      typeof coord.longitude === 'number' &&
+      !isNaN(coord.latitude) &&
+      !isNaN(coord.longitude) &&
+      coord.latitude >= -90 && coord.latitude <= 90 &&
+      coord.longitude >= -180 && coord.longitude <= 180;
   };
 
   // Generate HTML for the map with dynamic route updates
@@ -25,12 +26,12 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible }) => {
     // Filter and validate all coordinates
     const allPoints = routeCoordinates.length > 0 ? routeCoordinates : [currentLocation];
     const validPoints = allPoints.filter(validateCoordinate);
-    
+
     if (validPoints.length === 0) {
       console.warn('No valid coordinates found');
       return `<html><body><div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial;">No valid location data</div></body></html>`;
     }
-    
+
     const routePoints = validPoints;
     const startPoint = routePoints[0];
     const currentPoint = routePoints[routePoints.length - 1];
@@ -412,7 +413,11 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible }) => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>📍 Live Tracking</Text>
+        {/* <Text style={styles.title}>📍 Live Tracking</Text> */}
+        <View style={styles.headerTitleContainer}>
+          <BlinkingCircle isTracking={isTracking} />
+          <Text style={styles.title}>Live Tracking</Text>
+        </View>
         <Text style={styles.coordinates}>
           {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)}
         </Text>
@@ -420,7 +425,7 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible }) => {
           {routeCoordinates.length} point{routeCoordinates.length !== 1 ? 's' : ''} tracked
         </Text>
       </View>
-      
+
       <WebView
         ref={(ref) => { global.mapWebViewRef = ref; }}
         style={styles.map}
@@ -509,6 +514,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f0f0',
   },
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+    paddingBottom:2,
+  }
 });
 
 export default MapWebView;

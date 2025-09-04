@@ -90,7 +90,7 @@ const HomeScreen = ({ navigation }) => {
         // Check if tracking is already running
         const isAlreadyTracking = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
         setIsTracking(isAlreadyTracking);
-        
+
         // If already tracking, restore map state and get current locations
         if (isAlreadyTracking) {
           setShowMap(true);
@@ -127,22 +127,22 @@ const HomeScreen = ({ navigation }) => {
     try {
       console.log('--- CHECK-IN ---');
       console.log('Starting location tracking...');
-      
+
       // Get initial location for map
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      
+
       const initialCoord = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       };
-      
+
       setCurrentLocation(initialCoord);
       setRouteCoordinates([initialCoord]);
       setShowMap(true);
       setTrackingStartTime(new Date());
-      
+
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
         accuracy: Location.Accuracy.Balanced,
         timeInterval: 15 * 1000, // 15 seconds
@@ -234,13 +234,13 @@ const HomeScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
-      
+
       <View style={styles.header}>
         <Text style={styles.title}>WalStar Tracking</Text>
-        <View style={styles.statusContainer}>
-          <View style={[styles.statusDot, { backgroundColor: isTracking ? '#28a745' : '#dc3545' }]} />
+        <View style={[styles.statusContainer, { display: isTracking ? 'none' : 'block' }]}>
+          <View style={[styles.statusDot, { backgroundColor: isTracking ? '' : '#dc3545' }]} />
           <Text style={styles.statusText}>
-            {isTracking ? 'Active Tracking' : 'Ready to Track'}
+            {isTracking ? '' : 'Ready to Track'}
           </Text>
         </View>
         {isTracking && trackingStartTime && (
@@ -252,10 +252,11 @@ const HomeScreen = ({ navigation }) => {
 
       {showMap && currentLocation ? (
         <View style={styles.mapContainer}>
-          <MapWebView 
+          <MapWebView
             currentLocation={currentLocation}
             routeCoordinates={routeCoordinates}
             isVisible={showMap}
+            isTracking={isTracking}
           />
         </View>
       ) : (
@@ -267,21 +268,21 @@ const HomeScreen = ({ navigation }) => {
           </Text>
         </View>
       )}
-      
+
       <View style={styles.controlsContainer}>
-        <TouchableOpacity 
-          style={[styles.primaryButton, isTracking && styles.disabledButton]} 
-          onPress={handleCheckIn} 
+        <TouchableOpacity
+          style={[styles.primaryButton, isTracking && styles.disabledButton]}
+          onPress={handleCheckIn}
           disabled={isTracking}
         >
           <Text style={[styles.buttonText, isTracking && styles.disabledButtonText]}>
             🚀 Check In
           </Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.primaryButton, styles.checkoutButton, !isTracking && styles.disabledButton]} 
-          onPress={handleCheckOut} 
+
+        <TouchableOpacity
+          style={[styles.primaryButton, styles.checkoutButton, !isTracking && styles.disabledButton]}
+          onPress={handleCheckOut}
           disabled={!isTracking}
         >
           <Text style={[styles.buttonText, !isTracking && styles.disabledButtonText]}>
@@ -289,12 +290,12 @@ const HomeScreen = ({ navigation }) => {
           </Text>
         </TouchableOpacity>
       </View>
-      
+
       <View style={styles.secondaryControls}>
         <TouchableOpacity style={styles.secondaryButton} onPress={handleViewLocalData}>
           <Text style={styles.secondaryButtonText}>📊 View Data</Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity style={[styles.secondaryButton, styles.logoutButton]} onPress={handleLogout}>
           <Text style={[styles.secondaryButtonText, styles.logoutButtonText]}>🚪 Logout</Text>
         </TouchableOpacity>
@@ -313,7 +314,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#fff',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 0,
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
     alignItems: 'center',
@@ -323,7 +324,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#212529',
     marginBottom: 8,
-    marginTop:12,
+    marginTop: 12,
   },
   statusContainer: {
     flexDirection: 'row',
