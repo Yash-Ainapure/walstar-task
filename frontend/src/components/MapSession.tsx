@@ -5,18 +5,27 @@ import type { LatLngExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Session } from '../types'
 
-function haversineDistance(a: [number, number], b: [number, number]): number {
-    const R = 6371000 // Earth's radius in meters
-    const toRad = (v: number) => (v * Math.PI) / 180
-    const dLat = toRad(b[0] - a[0])
-    const dLon = toRad(b[1] - a[1])
-    const lat1 = toRad(a[0])
-    const lat2 = toRad(b[0])
-    const sinDLat = Math.sin(dLat / 2)
-    const sinDLon = Math.sin(dLon / 2)
-    const aa = sinDLat ** 2 + Math.cos(lat1) * Math.cos(lat2) * sinDLon ** 2
-    const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa))
-    return R * c
+// ===== Utils =====
+
+// Make sure timestamps are strictly increasing
+function sanitizeTimestamps(raw: number[]): number[] {
+    if (!raw.length) return []
+    const fixed: number[] = []
+    let last = raw[0]
+
+    fixed.push(last)
+    for (let i = 1; i < raw.length; i++) {
+        let t = raw[i]
+        if (!t || isNaN(t)) {
+            t = last + 1
+        }
+        if (t <= last) {
+            t = last + 1
+        }
+        fixed.push(t)
+        last = t
+    }
+    return fixed
 }
 
 // Fit map to polyline bounds
@@ -43,135 +52,163 @@ const endIcon = new L.Icon({
     iconAnchor: [12, 41],
 })
 
-// Remove consecutive duplicates
-function filterDuplicates(points: [number, number][]): [number, number][] {
-    return points.filter((pos, i, arr) =>
-        i === 0 || pos[0] !== arr[i - 1][0] || pos[1] !== arr[i - 1][1]
-    )
+// Distance helpers
+function metersBetween(a: [number, number], b: [number, number]) {
+    const R = 6371000, toRad = (v: number) => (v * Math.PI) / 180
+    const dLat = toRad(b[0] - a[0]), dLon = toRad(b[1] - a[1])
+    const lat1 = toRad(a[0]), lat2 = toRad(b[0])
+    const aa = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
+    return 2 * R * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa))
 }
+const areClose = (a: [number, number], b: [number, number], tolM = 1) =>
+    metersBetween(a, b) <= tolM
 
-// Split polyline if consecutive points are far apart
-function splitPolylineByGap(points: [number, number][], maxGapMeters = 100): [number, number][][] {
-    const result: [number, number][][] = []
-    let segment: [number, number][] = []
-
-    const distance = (a: [number, number], b: [number, number]) => {
-        const R = 6371000
-        const toRad = (v: number) => (v * Math.PI) / 180
-        const dLat = toRad(b[0] - a[0])
-        const dLon = toRad(b[1] - a[1])
-        const lat1 = toRad(a[0])
-        const lat2 = toRad(b[0])
-        const sinDLat = Math.sin(dLat / 2)
-        const sinDLon = Math.sin(dLon / 2)
-        const aa = sinDLat ** 2 + Math.cos(lat1) * Math.cos(lat2) * sinDLon ** 2
-        const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa))
-        return R * c
-    }
-
-    for (let i = 0; i < points.length; i++) {
-        if (i > 0 && distance(points[i - 1], points[i]) > maxGapMeters) {
-            if (segment.length) result.push(segment)
-            segment = []
-        }
-        segment.push(points[i])
-    }
-    if (segment.length) result.push(segment)
-    return result
+// Color by confidence
+function confidenceColor(c: number) {
+    if (c >= 0.8) return '#16a34a'  // strong (green)
+    if (c >= 0.5) return '#f59e0b'  // medium (amber)
+    return '#ef4444'                // weak (red)
 }
 
 export default function MapSession({ session }: { session: Session }) {
     const [distanceMeters, setDistanceMeters] = useState<number | null>(null)
+    const [mergedPolyline, setMergedPolyline] = useState<[number, number][]>([])
+    const [confidenceSegments, setConfidenceSegments] = useState<
+        { positions: [number, number][]; confidence: number }[]
+    >([])
 
     // raw latlng points
-    const latlngs = useMemo(() => session.locations?.map(l => [l.latitude, l.longitude] as [number, number]) || [], [session])
-    const filteredLatlngs = useMemo(() => filterDuplicates(latlngs), [latlngs])
-    const center: LatLngExpression = filteredLatlngs.length ? filteredLatlngs[0] : [0, 0]
-
+    const latlngs = useMemo(
+        () => session.locations?.map(l => [l.latitude, l.longitude] as [number, number]) || [],
+        [session]
+    )
+    const center: LatLngExpression = latlngs.length ? latlngs[0] : [0, 0]
 
     useEffect(() => {
-        if (filteredLatlngs.length < 2) {
+        if (latlngs.length < 2) {
+            setMergedPolyline(latlngs)
+            setConfidenceSegments([])
             setDistanceMeters(0)
             return
         }
 
-        let totalDistance = 0
-        for (let i = 1; i < filteredLatlngs.length; i++) {
-            const point1 = filteredLatlngs[i - 1]
-            const point2 = filteredLatlngs[i]
-            totalDistance += haversineDistance(point1, point2)
+        const fetchMatched = async () => {
+            try {
+                const coordString = latlngs.map(p => `${p[1]},${p[0]}`).join(';')
+
+                // prepare timestamps
+                const rawTimestamps =
+                    session.locations?.map(l => Math.floor(new Date(l.timestampUTC).getTime() / 1000)) || []
+                const timestamps = sanitizeTimestamps(rawTimestamps)
+
+                // prepare radiuses (10m default GPS accuracy for all points)
+                const radiuses = new Array(latlngs.length).fill(15)
+
+                const url =
+                    `https://router.project-osrm.org/match/v1/driving/${coordString}` +
+                    `?geometries=geojson&overview=full&gaps=ignore&tidy=true`
+                    + `&timestamps=${timestamps.join(';')}`
+                    + `&radiuses=${radiuses.join(';')}`
+
+                let res, data;
+                try {
+                    console.log('started')
+                    res = await fetch(url)
+                    data = await res.json()
+                    console.log('completed')
+
+                } catch (error) {
+                    console.log("got error")
+                    console.log(error)
+                }
+
+
+                if (!data || !data.matchings || data.matchings.length === 0) {
+                    setMergedPolyline(latlngs)
+                    setConfidenceSegments([])
+                    setDistanceMeters(null)
+                    return
+                }
+
+                // Pick best matching (highest confidence)
+                let bestMatchIndex = 0
+                for (let i = 0; i < data.matchings.length; i++) {
+                    if ((data.matchings[i].confidence ?? 0) > (data.matchings[bestMatchIndex]?.confidence ?? -1)) {
+                        bestMatchIndex = i
+                    }
+                }
+                const bestMatching = data.matchings[bestMatchIndex]
+
+                // Use its geometry as the snapped polyline
+                const snappedPolyline: [number, number][] =
+                    bestMatching.geometry.coordinates.map(
+                        (c: [number, number]) => [c[1], c[0]] as [number, number]
+                    )
+
+                // Update state
+                setMergedPolyline(snappedPolyline)
+                setConfidenceSegments([
+                    { positions: snappedPolyline, confidence: bestMatching.confidence ?? 1 }
+                ])
+                setDistanceMeters(bestMatching.distance ?? null)
+            } catch (e) {
+                console.error('OSRM match error', e)
+                setMergedPolyline(latlngs)
+                setConfidenceSegments([])
+                setDistanceMeters(null)
+            }
         }
 
-        setDistanceMeters(totalDistance)
-    }, [filteredLatlngs])
-
-    // Fetch route
-    // useEffect(() => {
-    //     if (filteredLatlngs.length < 2) return
-    //     // Two points → straight line
-    //     if (filteredLatlngs.length === 2) {
-    //         setRouteGeo(filteredLatlngs)
-    //         // Haversine distance
-    //         const [a, b] = filteredLatlngs
-    //         const R = 6371000
-    //         const toRad = (v: number) => (v * Math.PI) / 180
-    //         const dLat = toRad(b[0] - a[0])
-    //         const dLon = toRad(b[1] - a[1])
-    //         const lat1 = toRad(a[0])
-    //         const lat2 = toRad(b[0])
-    //         const sinDLat = Math.sin(dLat / 2)
-    //         const sinDLon = Math.sin(dLon / 2)
-    //         const aa = sinDLat ** 2 + Math.cos(lat1) * Math.cos(lat2) * sinDLon ** 2
-    //         const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa))
-    //         setDistanceMeters(R * c)
-    //         return
-    //     }
-    //     // Three or more points → OSRM
-    //     const fetchRoute = async () => {
-    //         const coords = filteredLatlngs.map(p => `${p[1]},${p[0]}`).join(';')
-    //         try {
-    //             const res = await osrmRoute(coords)
-    //             if (res.data.geometry?.coordinates) {
-    //                 setRouteGeo(res.data.geometry.coordinates.map(c => [c[1], c[0]]))
-    //                 setDistanceMeters(res.data.distanceMeters ?? res.data.fallbackDistanceMeters ?? null)
-    //             } else {
-    //                 setRouteGeo(null)
-    //                 setDistanceMeters(res.data.fallbackDistanceMeters ?? null)
-    //             }
-    //         } catch (e) {
-    //             console.error('OSRM error', e)
-    //             setRouteGeo(null)
-    //         }
-    //     }
-    //     fetchRoute()
-    // }, [filteredLatlngs])
-    // const polylinePositions = routeGeo ?? filteredLatlngs
-
-
-    const polylineSegments = splitPolylineByGap(filteredLatlngs, 200)
+        fetchMatched()
+    }, [latlngs, session.locations])
 
     return (
         <div className="w-full h-full flex flex-col">
             <div className="flex-1 min-h-0">
                 <MapContainer center={center} zoom={17} style={{ height: '100%', width: '100%' }}>
-                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap contributors' />
+                    <TileLayer
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        attribution="&copy; OpenStreetMap contributors"
+                    />
 
-                    {polylineSegments.map((seg, idx) => (
-                        <Polyline key={idx} positions={seg} color="blue" />
+                    {/* Continuous snapped polyline */}
+                    {mergedPolyline.length >= 2 && (
+                        <Polyline positions={mergedPolyline} weight={5} opacity={0.7} />
+                    )}
+
+                    {/* Confidence overlay */}
+                    {confidenceSegments.map((seg, i) => (
+                        <Polyline
+                            key={`conf-${i}`}
+                            positions={seg.positions}
+                            weight={6}
+                            opacity={0.9}
+                            color={confidenceColor(seg.confidence)}
+                        />
                     ))}
 
-                    {filteredLatlngs.length >= 1 && <Marker position={filteredLatlngs[0]} icon={startIcon}><Tooltip>Start</Tooltip></Marker>}
-                    {filteredLatlngs.length >= 2 && <Marker position={filteredLatlngs[filteredLatlngs.length - 1]} icon={endIcon}><Tooltip>End</Tooltip></Marker>}
+                    {latlngs.length >= 1 && (
+                        <Marker position={latlngs[0]} icon={startIcon}>
+                            <Tooltip>Start</Tooltip>
+                        </Marker>
+                    )}
+                    {latlngs.length >= 2 && (
+                        <Marker position={latlngs[latlngs.length - 1]} icon={endIcon}>
+                            <Tooltip>End</Tooltip>
+                        </Marker>
+                    )}
 
-                    {/* <FitBounds positions={polylinePositions} /> */}
-                    <FitBounds positions={filteredLatlngs} />
+                    <FitBounds positions={mergedPolyline.length ? mergedPolyline : latlngs} />
                 </MapContainer>
             </div>
 
             <div className="p-3 bg-gray-50 border-t text-sm">
                 <div className="flex justify-between">
                     <span>Points: {session.locations?.length || 0}</span>
-                    <span>Distance: {distanceMeters ? (distanceMeters / 1000).toFixed(3) + ' km' : 'calculating...'}</span>
+                    <span>
+                        Distance:{' '}
+                        {distanceMeters ? (distanceMeters / 1000).toFixed(3) + ' km' : 'calculating...'}
+                    </span>
                 </div>
             </div>
         </div>

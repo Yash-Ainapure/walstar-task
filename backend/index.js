@@ -15,7 +15,8 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
-  'http://192.168.10.171:5173', // Allow requests from local network
+  'http://192.168.10.171:5173',
+  '10.157.240.171:5173',
   'https://walstar-task.vercel.app',
   'https://walstar-task-jf7cthlpx-yash-ainapures-projects.vercel.app'
 ];

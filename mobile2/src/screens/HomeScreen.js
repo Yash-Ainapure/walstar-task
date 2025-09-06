@@ -143,14 +143,24 @@ const HomeScreen = ({ navigation }) => {
       setShowMap(true);
       setTrackingStartTime(new Date());
 
+      // await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+      //   accuracy: Location.Accuracy.Balanced,
+      //   timeInterval: 15 * 1000, // 15 seconds
+      //   distanceInterval: 10, // 10 meters
+      //   deferredUpdatesInterval: 15 * 1000, // 15 seconds
+      //   pausesUpdatesAutomatically: true,
+      //   showsBackgroundLocationIndicator: true,
+      // });
+
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-        accuracy: Location.Accuracy.Balanced,
-        timeInterval: 15 * 1000, // 15 seconds
-        distanceInterval: 10, // 10 meters
-        deferredUpdatesInterval: 15 * 1000, // 15 seconds
-        pausesUpdatesAutomatically: true,
+        accuracy: Location.Accuracy.Highest,
+        timeInterval: 2000,
+        distanceInterval: 1,
+        deferredUpdatesInterval: 1000,
+        pausesUpdatesAutomatically: false,
         showsBackgroundLocationIndicator: true,
       });
+
       setIsTracking(true);
       // Alert.alert('Tracking Started', 'Location tracking has been enabled.');
       console.log('--- CHECK-IN ---');
