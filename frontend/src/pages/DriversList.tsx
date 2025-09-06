@@ -7,17 +7,17 @@ import { Link } from 'react-router-dom'
 // Helper function to get full image URL
 function getImageUrl(photoUrl: string | undefined): string | null {
     if (!photoUrl) return null
-    
+
     // If it's already a full URL, return as is
     if (photoUrl.startsWith('http://') || photoUrl.startsWith('https://')) {
         return photoUrl
     }
-    
+
     // Convert relative path to full URL - static files are served from server root, not /api
-    const baseUrl = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001' 
+    const baseUrl = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001'
         : 'https://walstar-task.onrender.com'
-    
+
     return `${baseUrl}${photoUrl}`
 }
 
@@ -28,6 +28,7 @@ export default function DriversList() {
     const [creating, setCreating] = useState(false)
     const [form, setForm] = useState({ username: '', password: '', name: '', phone: '', address: '', profileImage: null as File | null })
     const nav = useNavigate()
+    const [isDeleting, setIsDeleting] = useState(false);
 
 
     useEffect(() => { fetchUsers() }, [])
@@ -57,7 +58,7 @@ export default function DriversList() {
             if (form.profileImage) {
                 formData.append('profileImage', form.profileImage)
             }
-            
+
             await createUser(formData)
             setForm({ username: '', password: '', name: '', phone: '', address: '', profileImage: null })
             fetchUsers()
@@ -68,7 +69,9 @@ export default function DriversList() {
 
     async function handleDelete(id: string) {
         if (!confirm('Delete user?')) return
+        setIsDeleting(true)
         try { await deleteUser(id); fetchUsers() } catch (e) { console.error(e) }
+        setIsDeleting(false)
     }
 
 
@@ -85,57 +88,57 @@ export default function DriversList() {
                     <h3 className="font-medium mb-2">Create driver</h3>
                     <form onSubmit={handleCreate} className="space-y-3">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <input 
-                                className="border p-2 rounded" 
-                                placeholder="Email" 
+                            <input
+                                className="border p-2 rounded"
+                                placeholder="Email"
                                 type="email"
-                                value={form.username} 
-                                onChange={e => setForm({ ...form, username: e.target.value })} 
+                                value={form.username}
+                                onChange={e => setForm({ ...form, username: e.target.value })}
                                 required
                             />
-                            <input 
-                                className="border p-2 rounded" 
-                                placeholder="Password" 
+                            <input
+                                className="border p-2 rounded"
+                                placeholder="Password"
                                 type="password"
-                                value={form.password} 
-                                onChange={e => setForm({ ...form, password: e.target.value })} 
+                                value={form.password}
+                                onChange={e => setForm({ ...form, password: e.target.value })}
                                 required
                             />
-                            <input 
-                                className="border p-2 rounded" 
-                                placeholder="Full Name" 
-                                value={form.name} 
-                                onChange={e => setForm({ ...form, name: e.target.value })} 
+                            <input
+                                className="border p-2 rounded"
+                                placeholder="Full Name"
+                                value={form.name}
+                                onChange={e => setForm({ ...form, name: e.target.value })}
                                 required
                             />
-                            <input 
-                                className="border p-2 rounded" 
-                                placeholder="Phone Number" 
+                            <input
+                                className="border p-2 rounded"
+                                placeholder="Phone Number"
                                 type="tel"
-                                value={form.phone} 
-                                onChange={e => setForm({ ...form, phone: e.target.value })} 
+                                value={form.phone}
+                                onChange={e => setForm({ ...form, phone: e.target.value })}
                                 required
                             />
                         </div>
-                        <input 
-                            className="border p-2 rounded w-full" 
-                            placeholder="Address" 
-                            value={form.address} 
-                            onChange={e => setForm({ ...form, address: e.target.value })} 
+                        <input
+                            className="border p-2 rounded w-full"
+                            placeholder="Address"
+                            value={form.address}
+                            onChange={e => setForm({ ...form, address: e.target.value })}
                             required
                         />
                         <div className="flex items-center gap-3">
                             <label className="text-sm font-medium text-gray-700">Profile Image:</label>
-                            <input 
-                                type="file" 
+                            <input
+                                type="file"
                                 accept="image/*"
                                 onChange={e => setForm({ ...form, profileImage: e.target.files?.[0] || null })}
                                 className="border p-2 rounded flex-1"
                             />
                         </div>
-                        <button 
+                        <button
                             type="submit"
-                            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 disabled:opacity-50" 
+                            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 disabled:opacity-50"
                             disabled={creating}
                         >
                             {creating ? 'Creating...' : 'Create Driver'}
@@ -152,8 +155,8 @@ export default function DriversList() {
                                 <li key={u._id} className="py-4 flex items-center justify-between">
                                     <div className="flex items-center gap-4">
                                         {getImageUrl(u.photoUrl) ? (
-                                            <img 
-                                                src={getImageUrl(u.photoUrl)!} 
+                                            <img
+                                                src={getImageUrl(u.photoUrl)!}
                                                 alt={u.name || u.username}
                                                 className="w-12 h-12 rounded-full object-cover"
                                                 onError={(e) => {
@@ -180,7 +183,7 @@ export default function DriversList() {
                                     <div className="flex items-center gap-2">
                                         <Link to={`/drivers/${u._id}`} className="text-blue-600 hover:underline">View</Link>
                                         <Link to={`/drivers/${u._id}/edit`} className="text-green-600 hover:underline">Edit</Link>
-                                        <button onClick={() => handleDelete(u._id)} className="text-red-600 hover:underline">Delete</button>
+                                        <button onClick={() => handleDelete(u._id)} className="text-red-600 hover:underline">{isDeleting ? 'Deleting...' : 'Delete'}</button>
                                     </div>
                                 </li>
                             ))}

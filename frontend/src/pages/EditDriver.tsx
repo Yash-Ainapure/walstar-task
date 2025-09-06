@@ -59,7 +59,12 @@ export default function EditDriver() {
             formData.append('name', form.name)
             formData.append('phone', form.phone)
             formData.append('address', form.address)
-            formData.append('role', 'driver')
+            if(user?.role=='superadmin'){
+                formData.append('role', 'superadmin')
+            }
+            else{
+                formData.append('role', 'driver')
+            }
             if (form.profileImage) {
                 formData.append('profileImage', form.profileImage)
             }
@@ -109,7 +114,7 @@ export default function EditDriver() {
                     {user.photoUrl && (
                         <div className="mb-4 flex justify-center">
                             <img 
-                                src={`http://localhost:5001${user.photoUrl}`}
+                                src={user.photoUrl}
                                 alt={user.name || user.username}
                                 className="w-24 h-24 rounded-full object-cover"
                             />
