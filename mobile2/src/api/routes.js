@@ -2,7 +2,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import API_BASE_URL from './config';
 
-const API_URL = `${API_BASE_URL}/routes`;
+const API_URL = `${API_BASE_URL}/api/routes`;
 
 export const storeRoute = async (route) => {
   try {

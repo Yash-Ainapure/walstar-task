@@ -2,7 +2,7 @@ import axios from 'axios';
 import API_BASE_URL from './config';
 import api from './api';
 
-const API_URL = `${API_BASE_URL}/auth`;
+const API_URL = `${API_BASE_URL}/api/auth`;
 
 const handleAuthError = (error) => {
   if (error.response) {

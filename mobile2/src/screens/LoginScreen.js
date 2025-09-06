@@ -1,24 +1,25 @@
-import * as SecureStore from 'expo-secure-store';
 import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, View, TouchableOpacity, SafeAreaView, StatusBar, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { login } from '../api/auth';
+import { login as loginApi } from '../api/auth';
+import { useContext } from "react";
+import { AuthContext } from "../navigation/AuthContext";
+
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const { login } = useContext(AuthContext);
+
 
   const handleLogin = async () => {
     try {
       setLoading(true);
-      const response = await login(username, password);
+      const response = await loginApi(username, password);
       const { token } = response.data;
 
       setLoading(false);
-      // Store the token securely
-      await SecureStore.setItemAsync('userToken', token);
-
-      navigation.navigate('Home');
+        await login(token);
     } catch (error) {
       Alert.alert('Login Failed', 'Invalid credentials');
       console.error(error);

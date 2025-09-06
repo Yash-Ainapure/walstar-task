@@ -1,56 +1,55 @@
-// navigation/AppNavigator.js
+import React, { useContext } from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createDrawerNavigator } from "@react-navigation/drawer";
+import { TouchableOpacity } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
-import React from 'react';
-import { TouchableOpacity } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons'; // Import an icon set
+import AuthStack from "./AuthStack";
+import CustomDrawer from "./CustomDrawer";
+import { AuthContext } from "./AuthContext";
 
-import LoginScreen from '../screens/LoginScreen';
-import RegisterScreen from '../screens/RegisterScreen';
-import HomeScreen from '../screens/HomeScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import HomeScreen from "../screens/HomeScreen";
+import ProfileScreen from "../screens/ProfileScreen";
 
-const Stack = createStackNavigator();
+const Drawer = createDrawerNavigator();
 
 const AppNavigator = () => {
+  const { isLoggedIn } = useContext(AuthContext);
+
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="Login">
-        <Stack.Screen 
-          name="Login" 
-          component={LoginScreen} 
-          options={{ headerShown: false }} 
-        />
-        <Stack.Screen 
-          name="Register" 
-          component={RegisterScreen} 
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen 
-          name="Home" 
-          component={HomeScreen} 
-          options={({ navigation }) => ({
-            title: 'WalStar Tracking',
-            headerLeft: null, // Removes the back button
+      {isLoggedIn ? (
+        <Drawer.Navigator
+          drawerContent={(props) => <CustomDrawer {...props} />}
+          screenOptions={({ navigation }) => ({
+            headerLeft: () => (
+              <TouchableOpacity
+                onPress={() => navigation.toggleDrawer()}
+                style={{ marginLeft: 15 }}
+              >
+                <Ionicons name="menu" size={28} color="#007AFF" />
+              </TouchableOpacity>
+            ),
             headerRight: () => (
-              <TouchableOpacity 
-                onPress={() => navigation.navigate('Profile')}
+              <TouchableOpacity
+                onPress={() => navigation.navigate("Profile")}
                 style={{ marginRight: 15 }}
               >
-                <Ionicons name="person-circle-outline" size={30} color="#007AFF" />
+                <Ionicons
+                  name="person-circle-outline"
+                  size={30}
+                  color="#007AFF"
+                />
               </TouchableOpacity>
             ),
           })}
-        />
-        <Stack.Screen 
-          name="Profile" 
-          component={ProfileScreen}
-          options={{
-            title: 'My Profile', // Give the profile screen a header title
-          }}
-        />
-      </Stack.Navigator>
+        >
+          <Drawer.Screen name="Home" component={HomeScreen} />
+          <Drawer.Screen name="Profile" component={ProfileScreen} />
+        </Drawer.Navigator>
+      ) : (
+        <AuthStack />
+      )}
     </NavigationContainer>
   );
 };

@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert, Dimensions, SafeAreaVi
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import NetInfo from '@react-native-community/netinfo';
-import * as SecureStore from 'expo-secure-store';
 import { initDB, writeLocation, getLocations, deleteAllLocations } from '../db/database';
 import { storeRoute } from '../api/routes';
 import MapWebView from '../components/MapWebView';
@@ -191,14 +190,6 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  const handleLogout = async () => {
-    if (isTracking) {
-      await handleCheckOut();
-    }
-    await SecureStore.deleteItemAsync('userToken');
-    navigation.navigate('Login');
-  };
-
   const handleViewLocalData = async () => {
     const locations = await getLocations();
     if (locations.length === 0) {
@@ -304,10 +295,6 @@ const HomeScreen = ({ navigation }) => {
       <View style={styles.secondaryControls}>
         <TouchableOpacity style={styles.secondaryButton} onPress={handleViewLocalData}>
           <Text style={styles.secondaryButtonText}>📊 View Data</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.secondaryButton, styles.logoutButton]} onPress={handleLogout}>
-          <Text style={[styles.secondaryButtonText, styles.logoutButtonText]}>🚪 Logout</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

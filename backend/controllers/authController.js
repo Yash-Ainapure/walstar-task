@@ -4,6 +4,8 @@ const User = require('../models/User');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
+const cloudinary = require("../config/cloudinary");
+
 
 const saltRounds = 10;
 const jwtSecret = process.env.JWT_SECRET;
@@ -111,33 +113,33 @@ exports.updateMe = async (req, res) => {
 // @access  Private
 exports.updateMyPhoto = async (req, res) => {
   try {
-    // Check if a file was actually uploaded
     if (!req.file) {
-      return res.status(400).json({ msg: 'Please upload an image file.' });
+      return res.status(400).json({ msg: "Please upload an image file." });
     }
 
-    // The 'protect' middleware gives us the user's ID
     const user = await User.findById(req.user.id);
-
     if (!user) {
-      return res.status(404).json({ msg: 'User not found' });
+      return res.status(404).json({ msg: "User not found" });
     }
 
-    // Update the photoUrl field with the path to the new file
-    user.photoUrl = `/uploads/${req.file.filename}`;
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: "user_profiles", // optional: store in a folder
+    });
 
-    // Save the updated user document
+    // Save the Cloudinary URL in the user document
+    user.photoUrl = result.secure_url;
+    user.photoId = result.public_id;
     await user.save();
 
-    // Send back the updated user data (without the password)
-    const updatedUser = await User.findById(req.user.id).select('-passwordHash');
+    const updatedUser = await User.findById(req.user.id).select("-passwordHash");
     res.json(updatedUser);
-
   } catch (err) {
-    console.error('updateMyPhoto error', err);
-    res.status(500).json({ msg: 'Server Error' });
+    console.error("updateMyPhoto error", err);
+    res.status(500).json({ msg: "Server Error" });
   }
 };
+
 
 
 /**
@@ -147,57 +149,29 @@ exports.updateMyPhoto = async (req, res) => {
  */
 exports.updateMyPhotoBase64 = async (req, res) => {
   try {
-    // 1. Get the Base64 string from the request body.
     const { photo } = req.body;
-
     if (!photo) {
-      return res.status(400).json({ msg: 'No photo data was sent.' });
+      return res.status(400).json({ msg: "No photo data was sent." });
     }
 
-    // 2. Decode the Base64 string.
-    // The string format is "data:[<mediatype>];base64,[<data>]"
-    // Example: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ..."
-    const matches = photo.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    // Upload Base64 string directly
+    const result = await cloudinary.uploader.upload(photo, {
+      folder: "user_profiles",
+    });
 
-    if (!matches || matches.length !== 3) {
-      return res.status(400).json({ msg: 'Invalid Base64 string format.' });
-    }
-
-    const imageBuffer = Buffer.from(matches[2], 'base64'); // This converts the string to binary data.
-    const mimeType = matches[1]; // e.g., 'image/jpeg'
-    const extension = mimeType.split('/')[1]; // e.g., 'jpeg'
-
-    // 3. Create a unique filename and define the path to save the file.
-    const filename = `profileImage-${Date.now()}-${uuidv4()}.${extension}`;
-
-    // This creates a path like: /your_project_folder/backend/public/uploads/filename.jpeg
-    const uploadPath = path.join(__dirname, '..', 'uploads', filename);
-
-    // Ensure the 'uploads' directory exists before trying to save the file.
-    const dir = path.dirname(uploadPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    // 4. Save the decoded image data to the file system.
-    fs.writeFileSync(uploadPath, imageBuffer);
-
-    // 5. Update the user's record in the database with the new photo URL.
     const user = await User.findById(req.user.id);
     if (!user) {
-      return res.status(404).json({ msg: 'User not found.' });
+      return res.status(404).json({ msg: "User not found." });
     }
 
-    // IMPORTANT: The URL saved in the DB should be the web-accessible path, not the full system path.
-    user.photoUrl = `/uploads/${filename}`;
+    user.photoUrl = result.secure_url;
+    user.photoId = result.public_id;
     await user.save();
 
-    // 6. Send back the updated user object so the frontend can update its state.
-    const updatedUser = await User.findById(req.user.id).select('-passwordHash');
+    const updatedUser = await User.findById(req.user.id).select("-passwordHash");
     res.json(updatedUser);
-
   } catch (err) {
-    console.error('Error in updateMyPhotoBase64:', err);
-    res.status(500).json({ msg: 'Server Error' });
+    console.error("Error in updateMyPhotoBase64:", err);
+    res.status(500).json({ msg: "Server Error" });
   }
 };

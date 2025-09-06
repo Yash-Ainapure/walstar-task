@@ -6,7 +6,7 @@ import * as SecureStore from 'expo-secure-store';
 import API_BASE_URL from './config';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_BASE_URL+'/api',
 });
 
 // This is the interceptor. It runs before every request.

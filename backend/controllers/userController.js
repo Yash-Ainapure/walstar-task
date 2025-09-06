@@ -38,7 +38,6 @@ exports.createUser = async (req, res) => {
     let photoUrl = null;
     let photoId = null;
 
-    console.log('Uploaded file:', req.file);
     if (req.file) {
       photoUrl = req.file.path;                // Cloudinary URL
       photoId = req.file.filename || req.file.public_id; // Cloudinary public_id

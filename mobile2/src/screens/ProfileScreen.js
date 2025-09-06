@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, Alert, TouchableOpacity, ActivityIndicator, SafeAreaView, ScrollView, Image, Modal } from 'react-native';
 import { getMyProfile, updateMyProfile, updateMyPhotoBase64 } from '../api/auth';
 // import * as ImagePicker from 'expo-image-picker';
-import { API_BASE } from '../api/config';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -119,15 +118,29 @@ const ProfileScreen = ({ navigation }) => {
     }, []);
 
     const handleWebViewMessage = async (event) => {
-        setModalVisible(false); // Close the modal immediately
+        setModalVisible(false); 
         setUploading(true);
         try {
             const base64String = event.nativeEvent.data;
             const response = await updateMyPhotoBase64(base64String);
-            setUser(response.data); // Update user state with new data
+            setUser(response.data); 
             Alert.alert('Success', 'Profile photo updated!');
         } catch (error) {
-            Alert.alert('Error', 'Could not update your photo.');
+            let errorMessage = "Could not update your photo.";
+
+            if (error.response) {
+                if (error.response.status === 413) {
+                    errorMessage = "Image too large. Maximum size allowed is 1 MB.";
+                } else {
+                    errorMessage = error.response.data?.message || errorMessage;
+                }
+            } else if (error.request) {
+                errorMessage = "No response from server. Please try again.";
+            } else {
+                errorMessage = error.message;
+            }
+
+            Alert.alert("Error", errorMessage);
         } finally {
             setUploading(false);
         }
@@ -175,7 +188,7 @@ const ProfileScreen = ({ navigation }) => {
                 <View style={styles.profileHeader}>
                     <TouchableOpacity onPress={() => setModalVisible(true)} disabled={uploading}>
                         <Image
-                            source={{ uri: `${API_BASE}${user?.photoUrl}` }}
+                            source={{ uri: `${user?.photoUrl}` }}
                             style={styles.avatar}
                         />
                         <View style={styles.avatarOverlay}>
