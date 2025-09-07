@@ -46,7 +46,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const PORT = process.env.PORT || 5001;
 const MONGO_URI = process.env.MONGO_URI;
 
-if (!process.env.JWT_SECRET) {
+if (!process.env.JWT_SECRET) { 
   console.warn('WARNING: JWT_SECRET not set in env. Set JWT_SECRET in .env file.');
 }
 

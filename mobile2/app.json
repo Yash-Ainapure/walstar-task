@@ -22,12 +22,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.mobile2",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDaEOKRo298Oy7beBHpKpCf-L3y4ZHx69s"
-        }
-      }
+      "package": "com.anonymous.mobile2"
     },
     "web": {
       "bundler": "metro",
@@ -53,7 +48,8 @@
         {
           "photosPermission": "The app accesses your photos to let you set your profile picture."
         }
-      ]
+      ],
+      "@maplibre/maplibre-react-native"
     ],
     "experiments": {
       "typedRoutes": true

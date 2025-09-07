@@ -10,6 +10,8 @@ import { AuthContext } from "./AuthContext";
 
 import HomeScreen from "../screens/HomeScreen";
 import ProfileScreen from "../screens/ProfileScreen";
+import RouteHistory from "../screens/RouteHistory";
+import SessionMapScreen from "../screens/SessionMap";
 
 const Drawer = createDrawerNavigator();
 
@@ -46,6 +48,8 @@ const AppNavigator = () => {
         >
           <Drawer.Screen name="Home" component={HomeScreen} />
           <Drawer.Screen name="Profile" component={ProfileScreen} />
+          <Drawer.Screen name="RouteHistory" component={RouteHistory} />
+          <Drawer.Screen name="SessionMap" component={SessionMapScreen} />
         </Drawer.Navigator>
       ) : (
         <AuthStack />

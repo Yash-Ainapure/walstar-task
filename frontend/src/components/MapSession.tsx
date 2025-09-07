@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { MapContainer, TileLayer, Polyline, Marker, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
+import { CircleMarker } from 'react-leaflet'
 import type { LatLngExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Session } from '../types'
@@ -29,7 +30,7 @@ function sanitizeTimestamps(raw: number[]): number[] {
 }
 
 // Fit map to polyline bounds
-function FitBounds({ positions }: { positions: LatLngExpression[] }) {
+function FitBounds({ positions }: { positions: LatLngExpression[] }): null {
     const map = useMap()
     useEffect(() => {
         if (positions.length) {
@@ -39,29 +40,6 @@ function FitBounds({ positions }: { positions: LatLngExpression[] }) {
     }, [positions, map])
     return null
 }
-
-// Start (green) and End (red) icons
-const startIcon = new L.Icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/190/190411.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-})
-const endIcon = new L.Icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/190/190406.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-})
-
-// Distance helpers
-function metersBetween(a: [number, number], b: [number, number]) {
-    const R = 6371000, toRad = (v: number) => (v * Math.PI) / 180
-    const dLat = toRad(b[0] - a[0]), dLon = toRad(b[1] - a[1])
-    const lat1 = toRad(a[0]), lat2 = toRad(b[0])
-    const aa = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
-    return 2 * R * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa))
-}
-const areClose = (a: [number, number], b: [number, number], tolM = 1) =>
-    metersBetween(a, b) <= tolM
 
 // Color by confidence
 function confidenceColor(c: number) {
@@ -77,7 +55,7 @@ export default function MapSession({ session }: { session: Session }) {
         { positions: [number, number][]; confidence: number }[]
     >([])
 
-    // raw latlng points
+    // raw latlng points (full list)
     const latlngs = useMemo(
         () => session.locations?.map(l => [l.latitude, l.longitude] as [number, number]) || [],
         [session]
@@ -94,34 +72,41 @@ export default function MapSession({ session }: { session: Session }) {
 
         const fetchMatched = async () => {
             try {
-                const coordString = latlngs.map(p => `${p[1]},${p[0]}`).join(';')
+                const MAX_OSRM_POINTS = 100
 
-                // prepare timestamps
-                const rawTimestamps =
-                    session.locations?.map(l => Math.floor(new Date(l.timestampUTC).getTime() / 1000)) || []
+                // --- Sampling (limit to 100 points like RN) ---
+                let toSend = session.locations || []
+                if (toSend.length > MAX_OSRM_POINTS) {
+                    const step = Math.ceil(toSend.length / MAX_OSRM_POINTS)
+                    const sampled = toSend.filter((_, i) => i % step === 0)
+                    if (sampled[sampled.length - 1] !== toSend[toSend.length - 1]) {
+                        sampled.push(toSend[toSend.length - 1])
+                    }
+                    toSend = sampled
+                }
+
+                // --- Build OSRM params ---
+                const coordString = toSend.map(p => `${p.longitude},${p.latitude}`).join(';')
+
+                // timestamps (strictly increasing)
+                const rawTimestamps = toSend.map(l =>
+                    Math.floor(new Date(l.timestampUTC).getTime() / 1000)
+                )
                 const timestamps = sanitizeTimestamps(rawTimestamps)
 
-                // prepare radiuses (10m default GPS accuracy for all points)
-                const radiuses = new Array(latlngs.length).fill(15)
+                // radiuses (10m default accuracy)
+                const radiuses = new Array(toSend.length).fill(10)
 
                 const url =
                     `https://router.project-osrm.org/match/v1/driving/${coordString}` +
-                    `?geometries=geojson&overview=full&gaps=ignore&tidy=true`
-                    + `&timestamps=${timestamps.join(';')}`
-                    + `&radiuses=${radiuses.join(';')}`
+                    `?geometries=geojson&overview=full&gaps=ignore&tidy=true` +
+                    `&timestamps=${timestamps.join(';')}` +
+                    `&radiuses=${radiuses.join(';')}`
 
-                let res, data;
-                try {
-                    console.log('started')
-                    res = await fetch(url)
-                    data = await res.json()
-                    console.log('completed')
+                console.log("OSRM request →", url)
 
-                } catch (error) {
-                    console.log("got error")
-                    console.log(error)
-                }
-
+                const res = await fetch(url)
+                const data = await res.json()
 
                 if (!data || !data.matchings || data.matchings.length === 0) {
                     setMergedPolyline(latlngs)
@@ -130,29 +115,30 @@ export default function MapSession({ session }: { session: Session }) {
                     return
                 }
 
-                // Pick best matching (highest confidence)
+                // --- Pick best matching ---
                 let bestMatchIndex = 0
                 for (let i = 0; i < data.matchings.length; i++) {
-                    if ((data.matchings[i].confidence ?? 0) > (data.matchings[bestMatchIndex]?.confidence ?? -1)) {
+                    if ((data.matchings[i].confidence ?? 0) >
+                        (data.matchings[bestMatchIndex]?.confidence ?? -1)) {
                         bestMatchIndex = i
                     }
                 }
                 const bestMatching = data.matchings[bestMatchIndex]
 
-                // Use its geometry as the snapped polyline
+                // snapped polyline
                 const snappedPolyline: [number, number][] =
                     bestMatching.geometry.coordinates.map(
                         (c: [number, number]) => [c[1], c[0]] as [number, number]
                     )
 
-                // Update state
+                // update state
                 setMergedPolyline(snappedPolyline)
                 setConfidenceSegments([
                     { positions: snappedPolyline, confidence: bestMatching.confidence ?? 1 }
                 ])
                 setDistanceMeters(bestMatching.distance ?? null)
             } catch (e) {
-                console.error('OSRM match error', e)
+                console.error("OSRM match error", e)
                 setMergedPolyline(latlngs)
                 setConfidenceSegments([])
                 setDistanceMeters(null)
@@ -187,16 +173,32 @@ export default function MapSession({ session }: { session: Session }) {
                         />
                     ))}
 
-                    {latlngs.length >= 1 && (
-                        <Marker position={latlngs[0]} icon={startIcon}>
-                            <Tooltip>Start</Tooltip>
-                        </Marker>
+                    {/* Start + End markers styled like RN */}
+                    {mergedPolyline.length >= 1 && (
+                        <CircleMarker
+                            center={mergedPolyline[0]}
+                            radius={7}
+                            pathOptions={{ fillColor: '#2ecc71', color: '#fff', weight: 2, fillOpacity: 1 }}
+                        >
+                            <Tooltip direction="top" offset={[0, -8]} opacity={1} permanent>
+                                Start
+                            </Tooltip>
+                        </CircleMarker>
                     )}
-                    {latlngs.length >= 2 && (
-                        <Marker position={latlngs[latlngs.length - 1]} icon={endIcon}>
-                            <Tooltip>End</Tooltip>
-                        </Marker>
+
+                    {mergedPolyline.length >= 2 && (
+                        <CircleMarker
+                            center={mergedPolyline[mergedPolyline.length - 1]}
+                            radius={7}
+                            pathOptions={{ fillColor: '#e74c3c', color: '#fff', weight: 2, fillOpacity: 1 }}
+                        >
+                            <Tooltip direction="top" offset={[0, -8]} opacity={1} permanent>
+                                End
+                            </Tooltip>
+                        </CircleMarker>
                     )}
+
+
 
                     <FitBounds positions={mergedPolyline.length ? mergedPolyline : latlngs} />
                 </MapContainer>

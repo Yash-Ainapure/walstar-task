@@ -16,10 +16,11 @@ const LoginScreen = ({ navigation }) => {
     try {
       setLoading(true);
       const response = await loginApi(username, password);
+      console.log(response.data);
       const { token } = response.data;
 
       setLoading(false);
-        await login(token);
+      login(token,response.data.user);
     } catch (error) {
       Alert.alert('Login Failed', 'Invalid credentials');
       console.error(error);

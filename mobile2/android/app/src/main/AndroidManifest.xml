@@ -17,7 +17,6 @@
     </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:fullBackupContent="@xml/secure_store_backup_rules" android:dataExtractionRules="@xml/secure_store_data_extraction_rules">
-    <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyDaEOKRo298Oy7beBHpKpCf-L3y4ZHx69s"/>
     <meta-data android:name="com.transistorsoft.locationmanager.license" android:value="UNDEFINED"/>
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
@@ -35,6 +34,5 @@
         <data android:scheme="exp+mobile2"/>
       </intent-filter>
     </activity>
-    <uses-library android:name="org.apache.http.legacy" android:required="false"/>
   </application>
 </manifest>

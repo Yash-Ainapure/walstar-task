@@ -5,6 +5,8 @@ export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
 
   useEffect(() => {
     const checkToken = async () => {
@@ -14,18 +16,22 @@ export const AuthProvider = ({ children }) => {
     checkToken();
   }, []);
 
-  const login = async (token) => {
+  const login = async (token,user) => {
     await SecureStore.setItemAsync("userToken", token);
     setIsLoggedIn(true);
+    setUser(user);
+    setToken(token);
   };
 
   const logout = async () => {
     await SecureStore.deleteItemAsync("userToken");
     setIsLoggedIn(false);
+    setUser(null);
+    setToken(null);
   };
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, login, logout }}>
+    <AuthContext.Provider value={{ isLoggedIn, login, logout, user, setUser,token }}>
       {children}
     </AuthContext.Provider>
   );
