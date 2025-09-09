@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect } from "react";
 import * as SecureStore from "expo-secure-store";
+import { setLogoutFunction } from "../api/api";
 
 export const AuthContext = createContext();
 
@@ -8,12 +9,22 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
 
+  const logout = async () => {
+    await SecureStore.deleteItemAsync("userToken");
+    setIsLoggedIn(false);
+    setUser(null);
+    setToken(null);
+  };
+
   useEffect(() => {
     const checkToken = async () => {
       const token = await SecureStore.getItemAsync("userToken");
       setIsLoggedIn(!!token);
     };
     checkToken();
+    
+    // Register logout function with API module for session expiry handling
+    setLogoutFunction(logout);
   }, []);
 
   const login = async (token,user) => {
@@ -21,13 +32,6 @@ export const AuthProvider = ({ children }) => {
     setIsLoggedIn(true);
     setUser(user);
     setToken(token);
-  };
-
-  const logout = async () => {
-    await SecureStore.deleteItemAsync("userToken");
-    setIsLoggedIn(false);
-    setUser(null);
-    setToken(null);
   };
 
   return (

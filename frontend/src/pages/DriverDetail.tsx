@@ -108,7 +108,7 @@ export default function DriverDetail() {
             setShowDeleteConfirm(null)
         } catch (error) {
             console.error('Failed to delete trip:', error)
-            alert('Failed to delete trip. Please try again.')
+            // alert('Failed to delete trip. Please try again.')
         }
     }
 
