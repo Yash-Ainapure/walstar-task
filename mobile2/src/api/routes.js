@@ -4,11 +4,24 @@ import API_BASE_URL from './config';
 
 const API_URL = `${API_BASE_URL}/api/routes`;
 
-export const storeRoute = async (route) => {
+export const storeRoute = async (routeData) => {
   try {
     const token = await SecureStore.getItemAsync('userToken');
     if (token) {
-      return axios.post(`${API_URL}/sync`, { route }, {
+      // Handle both old format (just route array) and new format (object with route and tripName)
+      const requestBody = Array.isArray(routeData) 
+        ? { route: routeData } 
+        : { 
+            route: routeData.route, 
+            tripName: routeData.tripName,
+            sessionId: routeData.sessionId 
+          };
+      
+      console.log('--- API ROUTES DEBUG ---');
+      console.log('Route data received:', JSON.stringify(routeData, null, 2));
+      console.log('Request body to send:', JSON.stringify(requestBody, null, 2));
+        
+      return axios.post(`${API_URL}/sync`, requestBody, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -28,6 +41,33 @@ export const storeRoute = async (route) => {
       console.error('Error message:', error.message);
     }
     console.error('Axios config:', error.config);
+    throw error;
+  }
+};
+
+export const createSession = async (sessionData) => {
+  try {
+    const token = await SecureStore.getItemAsync('userToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    console.log('--- CREATE SESSION DEBUG ---');
+    console.log('Session data:', JSON.stringify(sessionData, null, 2));
+
+    const response = await axios.post(`${API_URL}/me/session`, sessionData, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('Create session error:', error);
+    if (error.response) {
+      console.error('Error response data:', error.response.data);
+      console.error('Error response status:', error.response.status);
+    }
     throw error;
   }
 };

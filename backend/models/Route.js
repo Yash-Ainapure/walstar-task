@@ -7,12 +7,27 @@ const locationSchema = new mongoose.Schema({
   timestampIST: { type: String, required: true }
 }, { _id: false });
 
+const imageSchema = new mongoose.Schema({
+  cloudinaryId: { type: String, required: true },
+  url: { type: String, required: true },
+  thumbnailUrl: { type: String },
+  type: { type: String, enum: ['start_speedometer', 'end_speedometer', 'journey_stop'], required: true },
+  timestampUTC: { type: Date, required: true },
+  timestampIST: { type: String, required: true },
+  location: {
+    latitude: { type: Number },
+    longitude: { type: Number }
+  },
+  description: { type: String }
+}, { _id: false });
+
 const sessionSchema = new mongoose.Schema({
   sessionId: { type: String, required: true },
   startTime: { type: Date, required: true },
   endTime: { type: Date, required: true },
   locations: [locationSchema],
-  name: { type: String }
+  name: { type: String },
+  images: [imageSchema]
 }, { _id: false });
 
 const routeSchema = new mongoose.Schema({

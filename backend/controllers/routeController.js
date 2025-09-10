@@ -1,5 +1,23 @@
 const Route = require('../models/Route');
 const User = require('../models/User');
+const cloudinary = require('../config/cloudinary');
+const multer = require('multer');
+
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
 
 function toUTCandIST(isodate) {
   let dateInput = isodate;
@@ -35,7 +53,15 @@ async function ensureRouteDoc(userId) {
 exports.syncRoute = async (req, res) => {
   try {
     const authUser = req.user; // { id, username, role }
-    const { route: routeArr, sessionId: providedSessionId, username: targetUsername } = req.body;
+    const { route: routeArr, sessionId: providedSessionId, username: targetUsername, tripName } = req.body;
+
+    // Debug logging
+    console.log('=== SYNC ROUTE DEBUG ===');
+    console.log('Auth user:', authUser.username, 'ID:', authUser.id);
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('Trip name received:', tripName);
+    console.log('Route array length:', routeArr ? routeArr.length : 'undefined');
+    console.log('Provided session ID:', providedSessionId);
 
     if (!Array.isArray(routeArr) || routeArr.length === 0) {
       return res.status(400).json({ msg: 'No locations provided' });
@@ -106,21 +132,72 @@ exports.syncRoute = async (req, res) => {
     }
     // --- END: Data Cleaning and Healing Logic ---
     
-    // Add the new session data
+    // Check if session already exists and update it, otherwise create new
     if (!routeDoc.dates.has(dateKey)) {
       routeDoc.dates.set(dateKey, { sessions: [] });
     }
 
-    routeDoc.dates.get(dateKey).sessions.push({
-      sessionId,
-      startTime,
-      endTime,
-      locations: storedLocations
-    });
+    const dateData = routeDoc.dates.get(dateKey);
+    console.log('Date key for sync:', dateKey);
+    console.log('Existing sessions before sync:', dateData.sessions.map(s => ({ 
+      sessionId: s.sessionId, 
+      name: s.name, 
+      locationCount: s.locations?.length || 0, 
+      imageCount: s.images?.length || 0,
+      startTime: s.startTime,
+      endTime: s.endTime
+    })));
+    
+    let existingSession = dateData.sessions.find(s => s.sessionId === sessionId);
+
+    if (existingSession) {
+      // Update existing session with locations and trip name
+      console.log('=== UPDATING EXISTING SESSION ===');
+      console.log('Found existing session:', existingSession.sessionId);
+      console.log('Before update - Name:', existingSession.name, 'Locations:', existingSession.locations?.length || 0, 'Images:', existingSession.images?.length || 0);
+      
+      existingSession.endTime = endTime;
+      existingSession.locations = storedLocations;
+      
+      // Only update name if tripName is provided and not empty
+      if (tripName && tripName.trim()) {
+        existingSession.name = tripName.trim();
+      }
+      
+      console.log('After update - Name:', existingSession.name, 'Locations:', existingSession.locations?.length || 0, 'Images:', existingSession.images?.length || 0);
+      console.log('=== SESSION UPDATE COMPLETED ===');
+    } else {
+      // Create new session
+      console.log('=== CREATING NEW SESSION IN SYNC ===');
+      console.log('No existing session found with ID:', sessionId);
+      const sessionData = {
+        sessionId,
+        startTime,
+        endTime,
+        locations: storedLocations,
+        images: []
+      };
+
+      // Only add name if tripName is provided and not empty
+      if (tripName && tripName.trim()) {
+        sessionData.name = tripName.trim();
+      }
+
+      dateData.sessions.push(sessionData);
+      console.log('New session created in sync:', sessionId);
+      console.log('New session details:', { name: sessionData.name, locationCount: sessionData.locations?.length || 0 });
+    }
+    
+    console.log('Final sessions after sync:', dateData.sessions.map(s => ({ 
+      sessionId: s.sessionId, 
+      name: s.name, 
+      locationCount: s.locations?.length || 0, 
+      imageCount: s.images?.length || 0 
+    })));
 
     await routeDoc.save();
 
-    return res.json({ msg: 'Route data synced successfully', sessionId, date: dateKey });
+    return res.json({ msg: 'Route data synced successfully', sessionId, date: dateKey, tripName });
   } catch (err) {
     // Note: Changed to console.warn to distinguish from critical crashes
     console.warn('syncRoute error', err);
@@ -437,6 +514,216 @@ exports.osrmRouteProxy = async (req, res) => {
   }
 };
 
+/**
+ * uploadSessionImage
+ * - Upload an image for a specific session
+ * - POST /api/routes/:userId/session/:sessionId/image
+ */
+exports.createSession = async (req, res) => {
+  try {
+    const authUser = req.user; // { id, username, role }
+    const { date, sessionId, startTime, endTime, locations, name } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({ msg: 'Session ID is required' });
+    }
+
+    console.log('=== CREATE SESSION DEBUG ===');
+    console.log('Auth user:', authUser.username, 'ID:', authUser.id);
+    console.log('Session data:', { date, sessionId, startTime, endTime, name });
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+
+    // Use the same structure as syncRoute - find or create route document
+    const routeDoc = await ensureRouteDoc(authUser.id);
+    
+    const dateKey = date || new Date().toISOString().split('T')[0];
+    
+    // Initialize date entry if it doesn't exist
+    if (!routeDoc.dates.has(dateKey)) {
+      routeDoc.dates.set(dateKey, { sessions: [] });
+    }
+
+    const dateData = routeDoc.dates.get(dateKey);
+    console.log('Date key:', dateKey);
+    console.log('Existing sessions for date:', dateData.sessions.map(s => ({ sessionId: s.sessionId, name: s.name, locationCount: s.locations?.length || 0, imageCount: s.images?.length || 0 })));
+    
+    // Check if session already exists
+    const existingSession = dateData.sessions.find(s => s.sessionId === sessionId);
+    if (existingSession) {
+      console.log('Session already exists:', existingSession.sessionId);
+      console.log('Existing session details:', { name: existingSession.name, locationCount: existingSession.locations?.length || 0, imageCount: existingSession.images?.length || 0 });
+      return res.status(409).json({ msg: 'Session already exists' });
+    }
+
+    // Create new session using the same structure as syncRoute
+    const { timestampUTC: startTimeUTC } = toUTCandIST(startTime || new Date());
+    const { timestampUTC: endTimeUTC } = toUTCandIST(endTime || new Date());
+    
+    const newSession = {
+      sessionId,
+      startTime: startTimeUTC,
+      endTime: endTimeUTC,
+      locations: locations || [],
+      images: []
+    };
+
+    // Only add name if provided and not empty
+    if (name && name.trim()) {
+      newSession.name = name.trim();
+    }
+
+    dateData.sessions.push(newSession);
+    await routeDoc.save();
+
+    console.log('=== SESSION CREATED SUCCESSFULLY ===');
+    console.log('Session ID:', sessionId);
+    console.log('Session details:', { name: newSession.name, locationCount: newSession.locations?.length || 0, imageCount: newSession.images?.length || 0 });
+    console.log('Total sessions for date:', dateData.sessions.length);
+    
+    res.status(201).json({ 
+      msg: 'Session created successfully',
+      sessionId,
+      session: newSession
+    });
+
+  } catch (err) {
+    console.error('Create session error:', err);
+    res.status(500).json({ msg: 'Server error creating session' });
+  }
+};
+
+exports.uploadSessionImage = async (req, res) => {
+  try {
+    const authUser = req.user;
+    let targetUserId = req.params.userId;
+    const { sessionId } = req.params;
+    const { type, description, latitude, longitude } = req.body;
+
+    if (targetUserId === 'me') targetUserId = authUser.id;
+    if (authUser.role !== 'superadmin' && authUser.id !== targetUserId) {
+      return res.status(403).json({ msg: 'No permission' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ msg: 'No image file provided' });
+    }
+
+    if (!['start_speedometer', 'end_speedometer', 'journey_stop'].includes(type)) {
+      return res.status(400).json({ msg: 'Invalid image type' });
+    }
+
+    // Upload to Cloudinary
+    const uploadResult = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'walstar-journey-images',
+          transformation: [
+            { width: 1200, height: 1200, crop: 'limit', quality: 'auto' },
+            { format: 'auto' }
+          ]
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      uploadStream.end(req.file.buffer);
+    });
+
+    // Generate thumbnail URL
+    const thumbnailUrl = cloudinary.url(uploadResult.public_id, {
+      width: 300,
+      height: 300,
+      crop: 'fill',
+      quality: 'auto',
+      format: 'auto'
+    });
+
+    // Find the route document and session
+    const routeDoc = await Route.findOne({ user: targetUserId });
+    if (!routeDoc) return res.status(404).json({ msg: 'No route doc' });
+
+    let sessionFound = false;
+    const { timestampUTC, timestampIST } = toUTCandIST(new Date());
+
+    for (const [dateKey, dateBucket] of routeDoc.dates.entries()) {
+      const session = (dateBucket.sessions || []).find(s => s.sessionId === sessionId);
+      if (session) {
+        if (!session.images) session.images = [];
+        
+        session.images.push({
+          cloudinaryId: uploadResult.public_id,
+          url: uploadResult.secure_url,
+          thumbnailUrl,
+          type,
+          timestampUTC,
+          timestampIST,
+          location: latitude && longitude ? { latitude: parseFloat(latitude), longitude: parseFloat(longitude) } : undefined,
+          description: description || undefined
+        });
+        
+        sessionFound = true;
+        break;
+      }
+    }
+
+    if (!sessionFound) {
+      // Clean up uploaded image if session not found
+      await cloudinary.uploader.destroy(uploadResult.public_id);
+      return res.status(404).json({ msg: 'Session not found' });
+    }
+
+    await routeDoc.save();
+
+    return res.json({
+      msg: 'Image uploaded successfully',
+      image: {
+        cloudinaryId: uploadResult.public_id,
+        url: uploadResult.secure_url,
+        thumbnailUrl,
+        type,
+        timestamp: timestampIST
+      }
+    });
+  } catch (err) {
+    console.error('uploadSessionImage error', err);
+    res.status(500).json({ msg: 'Server error' });
+  }
+};
+
+/**
+ * getSessionImages
+ * - Get all images for a specific session
+ * - GET /api/routes/:userId/session/:sessionId/images
+ */
+exports.getSessionImages = async (req, res) => {
+  try {
+    const authUser = req.user;
+    let targetUserId = req.params.userId;
+    const { sessionId } = req.params;
+
+    if (targetUserId === 'me') targetUserId = authUser.id;
+    if (authUser.role !== 'superadmin' && authUser.id !== targetUserId) {
+      return res.status(403).json({ msg: 'No permission' });
+    }
+
+    const routeDoc = await Route.findOne({ user: targetUserId });
+    if (!routeDoc) return res.status(404).json({ msg: 'No route doc' });
+
+    for (const [dateKey, dateBucket] of routeDoc.dates.entries()) {
+      const session = (dateBucket.sessions || []).find(s => s.sessionId === sessionId);
+      if (session) {
+        return res.json({ images: session.images || [] });
+      }
+    }
+
+    return res.status(404).json({ msg: 'Session not found' });
+  } catch (err) {
+    console.error('getSessionImages error', err);
+    res.status(500).json({ msg: 'Server error' });
+  }
+};
+
 function haversineMeters(a, b) {
   const R = 6371000;
   const toRad = v => (v * Math.PI) / 180;
@@ -450,3 +737,6 @@ function haversineMeters(a, b) {
   const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
   return R * c;
 }
+
+// Export multer upload middleware
+exports.uploadMiddleware = upload.single('image');

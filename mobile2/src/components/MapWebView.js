@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { WebView } from "react-native-webview";
-import BlinkingCircle from "../components/BlinkingCircle";
+import BlinkingCircle from "./BlinkingCircle";
 
-const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking }) => {
+const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, imageMarkers = [], onImageMarkerPress }) => {
   const [mapReady, setMapReady] = useState(false);
   const webViewRef = useRef(null);
 
@@ -66,11 +66,12 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking }
         </div>
         <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
         <script>
-          let map, polyline, startMarker, currentMarker;
+          let map, polyline, startMarker, currentMarker, imageMarkers = [];
 
           function initMap() {
             try {
               const routePoints = ${JSON.stringify(validPoints.map(p => [p.latitude, p.longitude]))};
+              const imageMarkersData = ${JSON.stringify(imageMarkers || [])};
               const startPoint = routePoints[0];
               const currentPoint = routePoints[routePoints.length - 1];
 
@@ -94,12 +95,103 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking }
                 radius: 7, fillColor: '#e74c3c', color: '#fff', weight: 2, fillOpacity: 1
               }).addTo(map).bindPopup("Current Location");
 
+              // Add image markers
+              addImageMarkers(imageMarkersData);
+
               window.ReactNativeWebView.postMessage("mapReady");
             } catch (err) {
               document.getElementById('map').style.display = 'none';
               document.getElementById('fallbackMap').style.display = 'flex';
               window.ReactNativeWebView.postMessage("fallbackShown:" + err.message);
             }
+          }
+
+          function addImageMarkers(markersData) {
+            // Clear existing image markers
+            imageMarkers.forEach(marker => map.removeLayer(marker));
+            imageMarkers = [];
+
+            markersData.forEach((markerData, index) => {
+              if (markerData.location && markerData.location.latitude && markerData.location.longitude) {
+                const icon = getMarkerIcon(markerData.type);
+                const marker = L.circleMarker([markerData.location.latitude, markerData.location.longitude], {
+                  radius: 10,
+                  fillColor: getMarkerColor(markerData.type),
+                  color: '#fff',
+                  weight: 2,
+                  fillOpacity: 0.9
+                }).addTo(map);
+
+                const popupContent = \`
+                  <div style="text-align: center; min-width: 150px;">
+                    <div style="font-size: 20px; margin-bottom: 5px;">\${icon}</div>
+                    <div style="font-weight: bold; margin-bottom: 5px;">\${getMarkerTitle(markerData.type)}</div>
+                    \${markerData.description ? \`<div style="font-size: 12px; color: #666; margin-bottom: 8px;">\${markerData.description}</div>\` : ''}
+                    <div style="font-size: 11px; color: #999;">\${formatDateTime(markerData.timestampIST)}</div>
+                    <button onclick="viewImage(\${index})" style="
+                      background: #007AFF; 
+                      color: white; 
+                      border: none; 
+                      padding: 6px 12px; 
+                      border-radius: 4px; 
+                      margin-top: 8px;
+                      cursor: pointer;
+                      font-size: 12px;
+                    ">View Image</button>
+                  </div>
+                \`;
+
+                marker.bindPopup(popupContent);
+                imageMarkers.push(marker);
+              }
+            });
+          }
+
+          function getMarkerIcon(type) {
+            switch(type) {
+              case 'start_speedometer': return '🚗';
+              case 'end_speedometer': return '🏁';
+              case 'journey_stop': return '⛽';
+              default: return '📸';
+            }
+          }
+
+          function getMarkerColor(type) {
+            switch(type) {
+              case 'start_speedometer': return '#2ecc71';
+              case 'end_speedometer': return '#e74c3c';
+              case 'journey_stop': return '#f39c12';
+              default: return '#9b59b6';
+            }
+          }
+
+          function getMarkerTitle(type) {
+            switch(type) {
+              case 'start_speedometer': return 'Trip Start';
+              case 'end_speedometer': return 'Trip End';
+              case 'journey_stop': return 'Journey Stop';
+              default: return 'Image';
+            }
+          }
+
+          function formatDateTime(timestamp) {
+            try {
+              const date = new Date(timestamp);
+              return date.toLocaleString('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+              });
+            } catch (error) {
+              return timestamp;
+            }
+          }
+
+          function viewImage(index) {
+            window.ReactNativeWebView.postMessage("imageMarkerPressed:" + index);
           }
 
           // Update route from React Native
@@ -126,6 +218,17 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking }
             }
           };
 
+          // Update image markers from React Native
+          window.updateImageMarkers = function(newImageMarkers) {
+            try {
+              const markersData = JSON.parse(newImageMarkers);
+              addImageMarkers(markersData);
+              window.ReactNativeWebView.postMessage("imageMarkersUpdated:" + markersData.length);
+            } catch (err) {
+              window.ReactNativeWebView.postMessage("error:" + err.message);
+            }
+          };
+
           initMap();
         </script>
       </body>
@@ -140,6 +243,14 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking }
       webViewRef.current.postMessage(`updateRoute:${routePointsString}`);
     }
   }, [routeCoordinates, mapReady]);
+
+  // Send updates to WebView when image markers change
+  useEffect(() => {
+    if (mapReady && webViewRef.current) {
+      const imageMarkersString = JSON.stringify(imageMarkers);
+      webViewRef.current.postMessage(`updateImageMarkers:${imageMarkersString}`);
+    }
+  }, [imageMarkers, mapReady]);
 
   return (
     <View style={styles.container}>
@@ -165,6 +276,12 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking }
           const data = event.nativeEvent.data;
           if (data === "mapReady") setMapReady(true);
           if (data.startsWith("error:")) console.error("Leaflet error:", data);
+          if (data.startsWith("imageMarkerPressed:")) {
+            const index = parseInt(data.split(":")[1]);
+            if (onImageMarkerPress && imageMarkers[index]) {
+              onImageMarkerPress(imageMarkers[index]);
+            }
+          }
         }}
         javaScriptEnabled
         domStorageEnabled

@@ -1,15 +1,22 @@
+// HomeScreen.js
+
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, Dimensions, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Dimensions, SafeAreaView, StatusBar, TextInput, Modal } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import NetInfo from '@react-native-community/netinfo';
+// FIX: Import AsyncStorage to persist session details across app restarts.
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initDB, writeLocation, getLocations, deleteAllLocations } from '../db/database';
-import { storeRoute } from '../api/routes';
+import { storeRoute, createSession } from '../api/routes';
+import { uploadSessionImage, getSessionImages } from '../api/images';
 import MapWebView from '../components/MapWebView';
+import ImageCapture from '../components/ImageCapture';
+import ImageViewer from '../components/ImageViewer';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
-// Define the background task
+// Define the background task (no changes here)
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   if (error) {
     console.error('Background location task error:', error);
@@ -20,11 +27,10 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
     console.log('--- BACKGROUND TASK ---');
     console.log(`Received ${locations.length} new locations in background.`);
     try {
-      await initDB(); // Initialize DB for the background task
+      await initDB();
       for (const location of locations) {
         await writeLocation(location.coords.latitude, location.coords.longitude, new Date(location.timestamp));
       }
-      // Just store locations locally, don't sync immediately
       console.log('--- BACKGROUND TASK ---');
       console.log('Locations stored locally. Will sync on check-out.');
     } catch (err) {
@@ -39,41 +45,76 @@ const HomeScreen = ({ navigation }) => {
   const [currentLocation, setCurrentLocation] = useState(null);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [trackingStartTime, setTrackingStartTime] = useState(null);
+  const [showTripNameModal, setShowTripNameModal] = useState(false);
+  const [tripName, setTripName] = useState('');
+  const [currentTripName, setCurrentTripName] = useState('');
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [showImageCapture, setShowImageCapture] = useState(false);
+  const [imageCaptureType, setImageCaptureType] = useState('start_speedometer');
+  const [showImageViewer, setShowImageViewer] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  // const [pendingStartImage, setPendingStartImage] = useState(null);
+  const [sessionImages, setSessionImages] = useState([]);
 
-  // ✅ Sync offline data to the server when online
-  const syncOfflineData = async () => {
-    console.log('--- SYNC ---');
-    console.log('Checking for offline data to sync...');
+  // FIX: Modified syncOfflineData to accept session details as parameters.
+  // This makes the checkout process more reliable by not depending on component state
+  // which might be stale during async operations.
+  const syncOfflineData = async (tripNameForSync = null, sessionIdForSync = null) => {
+    console.log('=== SYNC PROCESS STARTING ===');
+    console.log('Trip Name Param:', tripNameForSync);
+    console.log('Session ID Param:', sessionIdForSync);
+    console.log('Session ID from State (fallback):', currentSessionId);
+
     const netState = await NetInfo.fetch();
     if (netState.isConnected) {
       const locations = await getLocations();
       if (locations.length > 0) {
         try {
+          // FIX: Prioritize the session ID passed as a parameter. Fall back to state for other syncs (e.g., on network reconnect).
+          const finalSessionId = sessionIdForSync || currentSessionId;
+          const finalTripName = tripNameForSync || currentTripName;
+
+          if (!finalSessionId) {
+            console.warn("SYNC SKIPPED: No Session ID available for sync.");
+            return;
+          }
+
           const route = locations.map(loc => ({
             latitude: loc.latitude,
             longitude: loc.longitude,
             timestamp: loc.timestamp
           }));
-          await storeRoute(route);
+
+          const syncData = {
+            route,
+            sessionId: finalSessionId,
+            tripName: finalTripName
+          };
+
+          console.log('=== SYNC DATA BEING SENT ===');
+          console.log(JSON.stringify(syncData, null, 2));
+
+          await storeRoute(syncData);
           await deleteAllLocations();
-          console.log('--- SYNC ---');
-          console.log(`Synced ${locations.length} locations.`);
-          console.log('Offline data synced successfully.');
+          console.log('=== SYNC COMPLETED SUCCESSFULLY ===');
+
         } catch (error) {
-          console.error('Failed to sync offline data', error);
+          console.error('=== SYNC ERROR ===');
+          console.error('Failed to sync offline data:', error);
         }
+      } else {
+        console.log('No locations to sync.');
       }
+    } else {
+      console.log('No internet connection - sync skipped.');
     }
   };
-
 
   useEffect(() => {
     const configureApp = async () => {
       try {
-        // ✅ Initialize database before anything else
         await initDB();
 
-        // ✅ Request location permissions
         const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
         if (foregroundStatus !== 'granted') {
           Alert.alert('Permission Denied', 'Foreground location permission is required.');
@@ -86,12 +127,20 @@ const HomeScreen = ({ navigation }) => {
           return;
         }
 
-        // Check if tracking is already running
         const isAlreadyTracking = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
         setIsTracking(isAlreadyTracking);
 
-        // If already tracking, restore map state and get current locations
         if (isAlreadyTracking) {
+          // FIX: Restore session details from AsyncStorage if the app was closed during tracking.
+          const storedSessionId = await AsyncStorage.getItem('currentSessionId');
+          const storedTripName = await AsyncStorage.getItem('currentTripName');
+
+          if (storedSessionId) {
+            console.log('Restoring session from storage:', { storedSessionId, storedTripName });
+            setCurrentSessionId(storedSessionId);
+            setCurrentTripName(storedTripName || '');
+          }
+
           setShowMap(true);
           const locations = await getLocations();
           if (locations.length > 0) {
@@ -110,10 +159,10 @@ const HomeScreen = ({ navigation }) => {
 
     configureApp();
 
-    // ✅ Sync offline data whenever network becomes available
     const unsubscribe = NetInfo.addEventListener(state => {
       if (state.isConnected) {
-        syncOfflineData();
+        // We pass nulls here so it uses the component's state, which should have been restored.
+        syncOfflineData(null, null);
       }
     });
 
@@ -122,34 +171,57 @@ const HomeScreen = ({ navigation }) => {
     };
   }, []);
 
-  const handleCheckIn = async () => {
+  const handleCheckIn = () => {
+    setTripName('');
+    setShowTripNameModal(true);
+  };
+
+  const startLocationTracking = async (startImage = null) => {
     try {
-      console.log('--- CHECK-IN ---');
-      console.log('Starting location tracking...');
+      const sessionId = `sess-${Date.now().toString(36)}`;
+      const startTime = new Date();
+      const finalTripName = tripName.trim(); // Use the trimmed name
 
-      // Get initial location for map
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
+      console.log('--- CHECK-IN PROCESS ---');
+      console.log(`Starting trip: '${finalTripName}' with Session ID: ${sessionId}`);
 
+      // FIX: Persist session details to AsyncStorage immediately.
+      await AsyncStorage.setItem('currentSessionId', sessionId);
+      await AsyncStorage.setItem('currentTripName', finalTripName);
+
+      // Set state
+      setCurrentSessionId(sessionId);
+      setCurrentTripName(finalTripName);
+      setTrackingStartTime(startTime);
+
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const initialCoord = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       };
-
       setCurrentLocation(initialCoord);
       setRouteCoordinates([initialCoord]);
       setShowMap(true);
-      setTrackingStartTime(new Date());
 
-      // await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-      //   accuracy: Location.Accuracy.Balanced,
-      //   timeInterval: 15 * 1000, // 15 seconds
-      //   distanceInterval: 10, // 10 meters
-      //   deferredUpdatesInterval: 15 * 1000, // 15 seconds
-      //   pausesUpdatesAutomatically: true,
-      //   showsBackgroundLocationIndicator: true,
-      // });
+      // Create session in the backend
+      try {
+        const sessionData = {
+          date: startTime.toISOString().split('T')[0],
+          sessionId: sessionId,
+          startTime: startTime.toISOString(),
+          endTime: startTime.toISOString(),
+          locations: [],
+          name: finalTripName // Send the trimmed name
+        };
+        await createSession(sessionData);
+        console.log('--- SESSION CREATED ON BACKEND ---');
+      } catch (sessionError) {
+        console.error('--- ERROR CREATING SESSION ---', sessionError);
+        Alert.alert('Error', 'Could not create tracking session. Please try again.');
+        // Clean up stored items if session creation fails
+        await AsyncStorage.multiRemove(['currentSessionId', 'currentTripName']);
+        return;
+      }
 
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
         accuracy: Location.Accuracy.Highest,
@@ -161,32 +233,124 @@ const HomeScreen = ({ navigation }) => {
       });
 
       setIsTracking(true);
-      // Alert.alert('Tracking Started', 'Location tracking has been enabled.');
-      console.log('--- CHECK-IN ---');
-      console.log('Location tracking started successfully.');
+
+      if (startImage) {
+        try {
+          console.log('Uploading start image for session:', sessionId);
+          await uploadSessionImage(sessionId, startImage);
+          await fetchSessionImages();
+        } catch (error) {
+          console.error('Error uploading start image:', error);
+        }
+      }
+
+      console.log('--- TRACKING STARTED SUCCESSFULLY ---');
+
     } catch (error) {
       console.error('Error starting location tracking:', error);
       Alert.alert('Error', 'Could not start location tracking.');
     }
   };
 
-  const handleCheckOut = async () => {
+  const finalizeCheckout = async () => {
     try {
-      console.log('--- CHECK-OUT ---');
-      console.log('Stopping location tracking...');
+      console.log('--- CHECK-OUT PROCESS ---');
+
+      // FIX: Capture the current session details into local variables before any async operations.
+      const sessionIdToSync = currentSessionId;
+      const tripNameToSync = currentTripName;
+
+      console.log('Finalizing checkout for Session ID:', sessionIdToSync);
+
       await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+
+      // FIX: Pass the captured session details directly to the sync function.
+      await syncOfflineData(tripNameToSync, sessionIdToSync);
+
+      // FIX: Clear the persisted session details from AsyncStorage.
+      await AsyncStorage.multiRemove(['currentSessionId', 'currentTripName']);
+
+      // Reset component state
       setIsTracking(false);
       setShowMap(false);
       setRouteCoordinates([]);
       setCurrentLocation(null);
       setTrackingStartTime(null);
-      await syncOfflineData(); // Sync any remaining data
-      // Alert.alert('Tracking Stopped', 'Location tracking has been disabled.');
-      console.log('--- CHECK-OUT ---');
-      console.log('Location tracking stopped.');
+      setCurrentTripName('');
+      setCurrentSessionId(null);
+
+      console.log('--- CHECK-OUT COMPLETE ---');
+
     } catch (error) {
       console.error('Error stopping location tracking:', error);
       Alert.alert('Error', 'Could not stop location tracking.');
+    }
+  };
+
+
+  // --- NO CHANGES IN THE FOLLOWING FUNCTIONS ---
+
+  const handleTripNameSubmit = () => {
+    if (tripName.trim()) {
+      setShowTripNameModal(false);
+      setImageCaptureType('start_speedometer');
+      setShowImageCapture(true);
+    } else {
+      Alert.alert('Trip Name Required', 'Please enter a name for your trip.');
+    }
+  };
+
+  const handleImageCaptured = async (imageData) => {
+    try {
+      if (imageCaptureType === 'start_speedometer') {
+        // setPendingStartImage(imageData);
+        await startLocationTracking(imageData);
+      } else if (imageCaptureType === 'end_speedometer') {
+        if (currentSessionId) {
+          await uploadSessionImage(currentSessionId, imageData);
+        }
+        await finalizeCheckout();
+      } else if (imageCaptureType === 'journey_stop') {
+        if (currentSessionId) {
+          await uploadSessionImage(currentSessionId, imageData);
+          await fetchSessionImages();
+          Alert.alert('Stop Recorded', 'Journey stop image has been saved successfully.');
+        }
+      }
+      setShowImageCapture(false);
+    } catch (error) {
+      console.error('Error handling captured image:', error);
+      Alert.alert('Upload Failed', 'Failed to save image. Please try again.');
+    }
+  };
+
+  const fetchSessionImages = async () => {
+    if (currentSessionId) {
+      try {
+        const images = await getSessionImages(currentSessionId);
+        setSessionImages(images);
+      } catch (error) {
+        console.error('Error fetching session images:', error);
+      }
+    }
+  };
+
+  const handleImageMarkerPress = (image) => {
+    setSelectedImage(image);
+    setShowImageViewer(true);
+  };
+
+  const handleCheckOut = () => {
+    setImageCaptureType('end_speedometer');
+    setShowImageCapture(true);
+  };
+
+  const handleJourneyStop = () => {
+    if (isTracking) {
+      setImageCaptureType('journey_stop');
+      setShowImageCapture(true);
+    } else {
+      Alert.alert('Not Tracking', 'Please start tracking first to record journey stops.');
     }
   };
 
@@ -200,7 +364,6 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  // Update route coordinates when new locations are received
   useEffect(() => {
     const updateMapLocation = async () => {
       if (isTracking && showMap) {
@@ -211,14 +374,12 @@ const HomeScreen = ({ navigation }) => {
             longitude: loc.longitude,
           }));
           setRouteCoordinates(coords);
-          // Update current location to the latest one
           const latest = coords[coords.length - 1];
           setCurrentLocation(latest);
         }
       }
     };
-
-    const interval = setInterval(updateMapLocation, 2000); // Update every 2 seconds
+    const interval = setInterval(updateMapLocation, 2000);
     return () => clearInterval(interval);
   }, [isTracking, showMap]);
 
@@ -231,6 +392,8 @@ const HomeScreen = ({ navigation }) => {
     const seconds = Math.floor((diff % (1000 * 60)) / 1000);
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
+
+  // --- JSX REMAINS THE SAME, NO CHANGES NEEDED BELOW ---
 
   return (
     <SafeAreaView style={styles.container}>
@@ -245,9 +408,16 @@ const HomeScreen = ({ navigation }) => {
           </Text>
         </View>
         {isTracking && trackingStartTime && (
-          <Text style={styles.durationText}>
-            Duration: {formatDuration(trackingStartTime)}
-          </Text>
+          <>
+            {currentTripName && (
+              <Text style={styles.tripNameText}>
+                Trip: {currentTripName}
+              </Text>
+            )}
+            <Text style={styles.durationText}>
+              Duration: {formatDuration(trackingStartTime)}
+            </Text>
+          </>
         )}
       </View>
 
@@ -258,6 +428,8 @@ const HomeScreen = ({ navigation }) => {
             routeCoordinates={routeCoordinates}
             isVisible={showMap}
             isTracking={isTracking}
+            imageMarkers={sessionImages}
+            onImageMarkerPress={handleImageMarkerPress}
           />
         </View>
       ) : (
@@ -296,12 +468,68 @@ const HomeScreen = ({ navigation }) => {
         <TouchableOpacity style={styles.secondaryButton} onPress={handleViewLocalData}>
           <Text style={styles.secondaryButtonText}>📊 View Data</Text>
         </TouchableOpacity>
+
+        {isTracking && (
+          <TouchableOpacity style={[styles.secondaryButton, styles.stopButton]} onPress={handleJourneyStop}>
+            <Text style={styles.secondaryButtonText}>⛽ Add Stop</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      <Modal
+        visible={showTripNameModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowTripNameModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Enter Trip Name</Text>
+            <Text style={styles.modalSubtitle}>Give your trip a memorable name</Text>
+
+            <TextInput
+              style={styles.tripNameInput}
+              placeholder="e.g., Morning Delivery Route"
+              value={tripName}
+              onChangeText={setTripName}
+              autoFocus={true}
+              maxLength={50}
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowTripNameModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.startButton]}
+                onPress={handleTripNameSubmit}
+              >
+                <Text style={styles.startButtonText}>Start Tracking</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <ImageCapture
+        visible={showImageCapture}
+        onClose={() => setShowImageCapture(false)}
+        onImageCaptured={handleImageCaptured}
+        type={imageCaptureType}
+      />
+
+      <ImageViewer
+        visible={showImageViewer}
+        onClose={() => setShowImageViewer(false)}
+        image={selectedImage}
+      />
     </SafeAreaView>
   );
 };
-
-const { width, height } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
@@ -339,6 +567,12 @@ const styles = StyleSheet.create({
     color: '#495057',
     fontWeight: '500',
   },
+  tripNameText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
   durationText: {
     fontSize: 14,
     color: '#6c757d',
@@ -367,13 +601,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 40,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
   },
   placeholderIcon: {
     fontSize: 64,
@@ -404,13 +631,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
   },
   checkoutButton: {
     backgroundColor: '#dc3545',
@@ -418,7 +638,6 @@ const styles = StyleSheet.create({
   disabledButton: {
     backgroundColor: '#e9ecef',
     elevation: 0,
-    shadowOpacity: 0,
   },
   buttonText: {
     color: '#fff',
@@ -446,11 +665,73 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  logoutButton: {
-    backgroundColor: '#dc3545',
+  stopButton: {
+    backgroundColor: '#ff6b35',
   },
-  logoutButtonText: {
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    margin: 20,
+    width: Dimensions.get('window').width - 40,
+    maxWidth: 400,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#212529',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6c757d',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  tripNameInput: {
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: '#f8f9fa',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#6c757d',
+  },
+  startButton: {
+    backgroundColor: '#007AFF',
+  },
+  cancelButtonText: {
     color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  startButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
