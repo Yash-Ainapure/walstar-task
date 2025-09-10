@@ -5,7 +5,6 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert, Dimensions, SafeAreaVi
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import NetInfo from '@react-native-community/netinfo';
-// FIX: Import AsyncStorage to persist session details across app restarts.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initDB, writeLocation, getLocations, deleteAllLocations } from '../db/database';
 import { storeRoute, createSession } from '../api/routes';
@@ -180,7 +179,7 @@ const HomeScreen = ({ navigation }) => {
     try {
       const sessionId = `sess-${Date.now().toString(36)}`;
       const startTime = new Date();
-      const finalTripName = tripName.trim(); // Use the trimmed name
+      const finalTripName = tripName.trim();
 
       console.log('--- CHECK-IN PROCESS ---');
       console.log(`Starting trip: '${finalTripName}' with Session ID: ${sessionId}`);
@@ -194,7 +193,7 @@ const HomeScreen = ({ navigation }) => {
       setCurrentTripName(finalTripName);
       setTrackingStartTime(startTime);
 
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
       const initialCoord = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
@@ -211,7 +210,7 @@ const HomeScreen = ({ navigation }) => {
           startTime: startTime.toISOString(),
           endTime: startTime.toISOString(),
           locations: [],
-          name: finalTripName // Send the trimmed name
+          name: finalTripName
         };
         await createSession(sessionData);
         console.log('--- SESSION CREATED ON BACKEND ---');
@@ -288,8 +287,6 @@ const HomeScreen = ({ navigation }) => {
   };
 
 
-  // --- NO CHANGES IN THE FOLLOWING FUNCTIONS ---
-
   const handleTripNameSubmit = () => {
     if (tripName.trim()) {
       setShowTripNameModal(false);
@@ -303,7 +300,6 @@ const HomeScreen = ({ navigation }) => {
   const handleImageCaptured = async (imageData) => {
     try {
       if (imageCaptureType === 'start_speedometer') {
-        // setPendingStartImage(imageData);
         await startLocationTracking(imageData);
       } else if (imageCaptureType === 'end_speedometer') {
         if (currentSessionId) {
@@ -393,14 +389,12 @@ const HomeScreen = ({ navigation }) => {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // --- JSX REMAINS THE SAME, NO CHANGES NEEDED BELOW ---
-
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
       <View style={styles.header}>
-        <Text style={styles.title}>WalStar Tracking</Text>
+        <Text style={styles.title}>WalStar Trackisssng</Text>
         <View style={[styles.statusContainer, { display: isTracking ? 'none' : 'block' }]}>
           <View style={[styles.statusDot, { backgroundColor: isTracking ? '' : '#dc3545' }]} />
           <Text style={styles.statusText}>
@@ -443,38 +437,48 @@ const HomeScreen = ({ navigation }) => {
       )}
 
       <View style={styles.controlsContainer}>
-        <TouchableOpacity
-          style={[styles.primaryButton, isTracking && styles.disabledButton]}
-          onPress={handleCheckIn}
-          disabled={isTracking}
-        >
-          <Text style={[styles.buttonText, isTracking && styles.disabledButtonText]}>
-            🚀 Check In
-          </Text>
-        </TouchableOpacity>
+        {
+          isTracking ? (
+            <TouchableOpacity
+              style={[styles.primaryButton, styles.checkoutButton, !isTracking && styles.disabledButton]}
+              onPress={handleCheckOut}
+              disabled={!isTracking}
+            >
+              <Text style={[styles.buttonText, !isTracking && styles.disabledButtonText]}>
+                🏁 Check Out
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.primaryButton, isTracking && styles.disabledButton]}
+              onPress={handleCheckIn}
+              disabled={isTracking}
+            >
+              <Text style={[styles.buttonText, isTracking && styles.disabledButtonText]}>
+                🚀 Check In
+              </Text>
+            </TouchableOpacity>
+          )
+        }
 
-        <TouchableOpacity
-          style={[styles.primaryButton, styles.checkoutButton, !isTracking && styles.disabledButton]}
-          onPress={handleCheckOut}
-          disabled={!isTracking}
-        >
-          <Text style={[styles.buttonText, !isTracking && styles.disabledButtonText]}>
-            🏁 Check Out
-          </Text>
-        </TouchableOpacity>
+
+
       </View>
+      {
+        isTracking ? (
+          <View style={styles.secondaryControls}>
+            <TouchableOpacity style={styles.secondaryButton} onPress={handleViewLocalData}>
+              <Text style={styles.secondaryButtonText}>📊 View Data</Text>
+            </TouchableOpacity>
 
-      <View style={styles.secondaryControls}>
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleViewLocalData}>
-          <Text style={styles.secondaryButtonText}>📊 View Data</Text>
-        </TouchableOpacity>
+            <TouchableOpacity style={[styles.secondaryButton, styles.stopButton]} onPress={handleJourneyStop}>
+              <Text style={styles.secondaryButtonText}>⛽ Add Stop</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null
+      }
 
-        {isTracking && (
-          <TouchableOpacity style={[styles.secondaryButton, styles.stopButton]} onPress={handleJourneyStop}>
-            <Text style={styles.secondaryButtonText}>⛽ Add Stop</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+
 
       <Modal
         visible={showTripNameModal}

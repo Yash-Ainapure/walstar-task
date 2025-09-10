@@ -1,4 +1,4 @@
-// MapWebView.js
+// MapWebViewWithOSRM.js - Optimized version with OSRM integration and incremental updates
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { WebView } from "react-native-webview";
@@ -6,8 +6,9 @@ import axios from "axios";
 import BlinkingCircle from "./BlinkingCircle";
 
 const MAX_OSRM_POINTS = 100;
+const OSRM_BATCH_SIZE = 20; // Process coordinates in batches for incremental updates
 
-const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, imageMarkers = [], onImageMarkerPress }) => {
+const MapWebViewWithOSRM = ({ currentLocation, routeCoordinates, isVisible, isTracking, imageMarkers = [], onImageMarkerPress }) => {
   const [mapReady, setMapReady] = useState(false);
   const webViewRef = useRef(null);
   const lastRouteLength = useRef(0);
@@ -15,26 +16,9 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
   const [matchedRoute, setMatchedRoute] = useState([]);
   const [confidenceSegments, setConfidenceSegments] = useState([]);
   const [isProcessingOSRM, setIsProcessingOSRM] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
-  const [leafletAssets, setLeafletAssets] = useState({ css: null, js: null, useLocal: false });
-  const [assetsLoaded, setAssetsLoaded] = useState(false);
   const osrmCache = useRef(new Map());
 
   if (!isVisible || !currentLocation) return null;
-
-  // Initialize Leaflet assets
-  useEffect(() => {
-    console.log('🔄 Initializing Leaflet assets...');
-    
-    // Use CDN for reliable loading
-    setLeafletAssets({
-      css: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-      js: 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-      useLocal: false
-    });
-    setAssetsLoaded(true);
-    console.log('✅ Leaflet CDN assets ready');
-  }, []);
 
   // Coordinate validation
   const validateCoordinate = (coord) =>
@@ -64,12 +48,13 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
     return fixed;
   };
 
-  // OSRM Match service integration with fallback
+  // OSRM Match service integration
   const matchCoordinatesToRoads = async (coordinates, useCache = true) => {
     if (!coordinates || coordinates.length < 2) {
       return { matchedRoute: coordinates.map(c => [c.latitude, c.longitude]), confidence: 1 };
     }
 
+    // Generate cache key
     const cacheKey = coordinates.map(c => `${c.latitude.toFixed(6)},${c.longitude.toFixed(6)}`).join('|');
     
     if (useCache && osrmCache.current.has(cacheKey)) {
@@ -78,8 +63,8 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
 
     try {
       setIsProcessingOSRM(true);
-      setIsOnline(true);
 
+      // Sample if too many points
       let toSend = coordinates;
       if (coordinates.length > MAX_OSRM_POINTS) {
         const step = Math.ceil(coordinates.length / MAX_OSRM_POINTS);
@@ -90,27 +75,21 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
         toSend = sampled;
       }
 
-      // Validate coordinates before sending to OSRM
-      const validCoords = toSend.filter(validateCoordinate);
-      if (validCoords.length < 2) {
-        throw new Error('Insufficient valid coordinates for OSRM');
-      }
-
-      const coordStr = validCoords.map(p => `${p.longitude},${p.latitude}`).join(";");
-      const timestamps = sanitizeTimestamps(validCoords.map((_, i) => Math.floor(Date.now() / 1000) + i));
-      const radiuses = new Array(validCoords.length).fill(25); // Increased radius for better matching
+      // Build OSRM request
+      const coordStr = toSend.map(p => `${p.longitude},${p.latitude}`).join(";");
+      const timestamps = sanitizeTimestamps(toSend.map((_, i) => Date.now() / 1000 + i));
+      const radiuses = new Array(toSend.length).fill(10);
 
       const url = `https://router.project-osrm.org/match/v1/driving/${coordStr}` +
         `?geometries=geojson&overview=full&gaps=ignore&tidy=true` +
         `&timestamps=${timestamps.join(";")}` +
         `&radiuses=${radiuses.join(";")}`;
 
-      console.log('🌐 OSRM request:', { coordCount: validCoords.length, url: url.substring(0, 100) + '...' });
-
       const response = await axios.get(url, { timeout: 10000 });
       const data = response.data;
 
       if (!data || !data.matchings || data.matchings.length === 0) {
+        // Fallback to original coordinates
         const result = { 
           matchedRoute: coordinates.map(c => [c.latitude, c.longitude]), 
           confidence: 0.5,
@@ -120,6 +99,7 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
         return result;
       }
 
+      // Find best matching
       let bestMatchIndex = 0;
       for (let i = 0; i < data.matchings.length; i++) {
         if ((data.matchings[i].confidence ?? 0) > (data.matchings[bestMatchIndex]?.confidence ?? -1)) {
@@ -144,8 +124,7 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
       return result;
 
     } catch (error) {
-      console.warn('OSRM offline, using raw coordinates:', error.message);
-      setIsOnline(false);
+      console.warn('OSRM matching failed, using raw coordinates:', error.message);
       const result = { 
         matchedRoute: coordinates.map(c => [c.latitude, c.longitude]), 
         confidence: 0.3,
@@ -158,10 +137,10 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
     }
   };
 
-  // Process route coordinates with OSRM (debounced)
+  // Process route coordinates with OSRM
   useEffect(() => {
     const processRoute = async () => {
-      if (!routeCoordinates.length || isProcessingOSRM) return;
+      if (!routeCoordinates.length) return;
 
       const validCoords = routeCoordinates.filter(validateCoordinate);
       if (validCoords.length < 2) {
@@ -170,49 +149,30 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
         return;
       }
 
-      // Only process if we have significant new data
-      if (validCoords.length > lastRouteLength.current + 5 || validCoords.length < lastRouteLength.current) {
-        const result = await matchCoordinatesToRoads(validCoords);
-        setMatchedRoute(result.matchedRoute);
-        setConfidenceSegments(result.segments || []);
-      }
+      const result = await matchCoordinatesToRoads(validCoords);
+      setMatchedRoute(result.matchedRoute);
+      setConfidenceSegments(result.segments || []);
     };
 
-    const timeoutId = setTimeout(processRoute, 1000); // Debounce OSRM calls
-    return () => clearTimeout(timeoutId);
-  }, [routeCoordinates, isProcessingOSRM]);
+    processRoute();
+  }, [routeCoordinates]);
 
-  // Generate HTML with Leaflet map
+  // Generate HTML with Leaflet and OSRM-matched routes
   const generateMapHTML = () => {
-    if (!assetsLoaded) {
-      return `<html><body><div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial;">Loading Leaflet assets...</div></body></html>`;
-    }
-
-    const displayRoute = matchedRoute.length > 0 ? matchedRoute : 
-      (routeCoordinates.length > 0 ? routeCoordinates.map(c => [c.latitude, c.longitude]) : [[currentLocation.latitude, currentLocation.longitude]]);
-
-    if (displayRoute.length === 0) {
+    if (!matchedRoute.length && !currentLocation) {
       return `<html><body><div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial;">Loading map...</div></body></html>`;
     }
 
+    const displayRoute = matchedRoute.length > 0 ? matchedRoute : [[currentLocation.latitude, currentLocation.longitude]];
     const startPoint = displayRoute[0];
     const currentPoint = displayRoute[displayRoute.length - 1];
-
-    // Generate CSS and JS includes based on asset type
-    const cssInclude = leafletAssets.useLocal 
-      ? `<style>${leafletAssets.css}</style>` 
-      : `<link rel="stylesheet" href="${leafletAssets.css}"/>`;
-    
-    const jsInclude = leafletAssets.useLocal 
-      ? `<script>${leafletAssets.js}</script>`
-      : `<script src="${leafletAssets.js}"></script>`;
 
     return `
       <!DOCTYPE html>
       <html>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-        ${cssInclude}
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
         <style>
           html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
           #fallbackMap {
@@ -224,7 +184,7 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
             color: white; font-family: Arial, sans-serif;
             text-align: center; padding: 20px;
           }
-          .status-indicator {
+          .osrm-status {
             position: absolute;
             top: 10px;
             right: 10px;
@@ -235,15 +195,11 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
             font-size: 12px;
             z-index: 1000;
           }
-          .offline { background: rgba(255,0,0,0.7); }
-          .online { background: rgba(0,128,0,0.7); }
         </style>
       </head>
       <body>
         <div id="map"></div>
-        <div class="status-indicator ${isOnline ? 'online' : 'offline'}" id="statusIndicator">
-          ${isOnline ? '🌐 Road-matched' : '📍 GPS-only'}
-        </div>
+        <div class="osrm-status" id="osrmStatus">Road-matched</div>
         <div id="fallbackMap">
           <h2>📍 Location Tracking Active</h2>
           <div style="margin: 20px 0;">
@@ -253,65 +209,26 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
           </div>
           <div style="font-size: 14px; opacity: 0.8;">Map visualization temporarily unavailable</div>
         </div>
-        ${jsInclude}
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <script>
           let map, polyline, startMarker, currentMarker, imageMarkers = [];
           let isMapInitialized = false;
-          let initializationInProgress = false;
 
           function initMap() {
-            if (isMapInitialized || initializationInProgress) {
-              console.log('🔄 Map already initialized or in progress, skipping...');
-              return;
-            }
-            
-            initializationInProgress = true;
-            
             try {
-              console.log('🗺️ Initializing Leaflet map...');
-              console.log('📦 Using CDN Leaflet assets');
-              
-              // Check if Leaflet is available
-              if (typeof L === 'undefined') {
-                console.error('❌ Leaflet library not loaded!');
-                throw new Error('Leaflet library not available');
-              }
-              
-              console.log('✅ Leaflet library loaded successfully');
-              console.log('📍 Leaflet version:', L.version || 'unknown');
-              
               const routePoints = ${JSON.stringify(displayRoute)};
               const imageMarkersData = ${JSON.stringify(imageMarkers || [])};
               const confidenceSegments = ${JSON.stringify(confidenceSegments)};
               
-              console.log('🛣️ Route points:', routePoints.length);
-              console.log('📸 Image markers:', imageMarkersData.length);
-              console.log('🎯 Confidence segments:', confidenceSegments.length);
-              
-              if (!routePoints.length) {
-                console.warn('⚠️ No route points available');
-                initializationInProgress = false;
-                return;
-              }
+              if (!routePoints.length) return;
 
-              console.log('🏗️ Creating Leaflet map instance...');
-              
-              // Clear any existing map instance
-              const mapContainer = document.getElementById('map');
-              if (mapContainer._leaflet_id) {
-                console.log('🧹 Removing existing map instance');
-                mapContainer._leaflet_id = null;
-                mapContainer.innerHTML = '';
-              }
-              
               map = L.map('map', {
                 zoomControl: true,
                 attributionControl: true,
                 preferCanvas: true
               });
-              console.log('✅ Map instance created');
 
-              console.log('🗺️ Adding tile layer...');
+              // Add tile layer with offline fallback
               const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 attribution: '© OpenStreetMap contributors',
@@ -319,23 +236,15 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
               });
 
               tileLayer.on('tileerror', function(error) {
-                console.warn('🚫 Tile loading error:', error);
-              });
-
-              tileLayer.on('load', function() {
-                console.log('✅ Tiles loaded successfully');
+                console.warn('Tile loading error:', error);
               });
 
               tileLayer.addTo(map);
-              console.log('✅ Tile layer added to map');
 
-              // Draw confidence segments or main route
-              console.log('🎨 Drawing route visualization...');
+              // Draw confidence segments if available
               if (confidenceSegments.length > 0) {
-                console.log('🎯 Drawing confidence-based segments');
-                confidenceSegments.forEach((segment, index) => {
+                confidenceSegments.forEach(segment => {
                   const color = getConfidenceColor(segment.confidence);
-                  console.log(\`📍 Segment \${index + 1}: \${segment.positions.length} points, confidence: \${(segment.confidence * 100).toFixed(1)}%, color: \${color}\`);
                   L.polyline(segment.positions, { 
                     color: color, 
                     weight: 6, 
@@ -344,7 +253,7 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
                   }).addTo(map);
                 });
               } else {
-                console.log('🛣️ Drawing standard route polyline');
+                // Draw main route
                 polyline = L.polyline(routePoints, { 
                   color: '#0066FF', 
                   weight: 4,
@@ -353,44 +262,33 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
               }
 
               // Fit bounds
-              console.log('🔍 Fitting map bounds...');
               if (routePoints.length > 1) {
                 const bounds = L.latLngBounds(routePoints);
                 map.fitBounds(bounds, { padding: [40, 40] });
-                console.log('✅ Map bounds fitted to route');
               } else {
                 map.setView(routePoints[0], 16);
-                console.log('✅ Map centered on single point');
               }
 
               // Add markers
-              console.log('📍 Adding route markers...');
               if (routePoints.length > 0) {
                 startMarker = L.circleMarker(routePoints[0], {
                   radius: 7, fillColor: '#2ecc71', color: '#fff', weight: 2, fillOpacity: 1
                 }).addTo(map).bindPopup("Trip Start");
-                console.log('🚗 Start marker added');
 
                 if (routePoints.length > 1) {
                   currentMarker = L.circleMarker(routePoints[routePoints.length - 1], {
                     radius: 7, fillColor: '#e74c3c', color: '#fff', weight: 2, fillOpacity: 1
                   }).addTo(map).bindPopup("Current Location");
-                  console.log('📍 Current location marker added');
                 }
               }
 
-              console.log('📸 Adding image markers...');
+              // Add image markers
               addImageMarkers(imageMarkersData);
-              
+
               isMapInitialized = true;
-              initializationInProgress = false;
-              console.log('🎉 Map initialization completed successfully!');
               window.ReactNativeWebView.postMessage("mapReady");
-              
             } catch (err) {
-              console.error('💥 Map initialization failed:', err);
-              initializationInProgress = false;
-              
+              console.error('Map initialization error:', err);
               document.getElementById('map').style.display = 'none';
               document.getElementById('fallbackMap').style.display = 'flex';
               window.ReactNativeWebView.postMessage("fallbackShown:" + err.message);
@@ -398,14 +296,19 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
           }
 
           function getConfidenceColor(confidence) {
-            if (confidence >= 0.8) return "#16a34a";
-            if (confidence >= 0.5) return "#f59e0b";
-            return "#ef4444";
+            if (confidence >= 0.8) return "#16a34a"; // strong green
+            if (confidence >= 0.5) return "#f59e0b"; // amber
+            return "#ef4444"; // weak red
           }
 
           function addImageMarkers(markersData) {
-            // Clear existing image markers
-            imageMarkers.forEach(marker => map.removeLayer(marker));
+            if (!isMapInitialized) return;
+            
+            imageMarkers.forEach(marker => {
+              if (map.hasLayer(marker)) {
+                map.removeLayer(marker);
+              }
+            });
             imageMarkers = [];
 
             markersData.forEach((markerData, index) => {
@@ -491,64 +394,61 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
             window.ReactNativeWebView.postMessage("imageMarkerPressed:" + index);
           }
 
-          // Update route incrementally from React Native
-          window.updateRouteIncremental = function(newPoints) {
+          // Update route with new OSRM-matched data
+          window.updateRoute = function(newRouteData) {
+            if (!isMapInitialized) return;
+            
             try {
-              const points = JSON.parse(newPoints);
-              if (!points.length) return;
-
-              // Add new points to existing polyline
-              const newLatLngs = points.map(p => [p.latitude, p.longitude]);
+              const data = JSON.parse(newRouteData);
+              const routePoints = data.matchedRoute || data.route || [];
+              const segments = data.segments || [];
               
-              if (polyline) {
-                // Get existing points and add new ones
-                const existingLatLngs = polyline.getLatLngs();
-                const allLatLngs = [...existingLatLngs, ...newLatLngs];
-                polyline.setLatLngs(allLatLngs);
+              if (!routePoints.length) return;
+
+              // Clear existing route
+              map.eachLayer(layer => {
+                if (layer instanceof L.Polyline && !(layer instanceof L.CircleMarker)) {
+                  map.removeLayer(layer);
+                }
+              });
+
+              // Draw new segments or route
+              if (segments.length > 0) {
+                segments.forEach(segment => {
+                  const color = getConfidenceColor(segment.confidence);
+                  L.polyline(segment.positions, { 
+                    color: color, 
+                    weight: 6, 
+                    opacity: 0.9,
+                    smoothFactor: 1.0
+                  }).addTo(map);
+                });
               } else {
-                // Create new polyline if it doesn't exist
-                polyline = L.polyline(newLatLngs, { color: '#0066FF', weight: 4 }).addTo(map);
+                L.polyline(routePoints, { 
+                  color: '#0066FF', 
+                  weight: 4,
+                  smoothFactor: 1.0
+                }).addTo(map);
               }
 
-              // Update current marker to last point
-              if (currentMarker) map.removeLayer(currentMarker);
-              const currentPoint = newLatLngs[newLatLngs.length - 1];
-              currentMarker = L.circleMarker(currentPoint, {
-                radius: 7, fillColor: '#e74c3c', color: '#fff', weight: 2, fillOpacity: 1
-              }).addTo(map).bindPopup("Current Location");
-
-              map.panTo(currentPoint);
-              window.ReactNativeWebView.postMessage("routeUpdatedIncremental:" + newLatLngs.length);
-            } catch (err) {
-              window.ReactNativeWebView.postMessage("error:" + err.message);
-            }
-          };
-
-          // Full route update (fallback)
-          window.updateRoute = function(newRoutePoints) {
-            try {
-              const points = JSON.parse(newRoutePoints).map(p => [p.latitude, p.longitude]);
-              if (!points.length) return;
-
-              // Update polyline
-              if (polyline) map.removeLayer(polyline);
-              polyline = L.polyline(points, { color: '#0066FF', weight: 4 }).addTo(map);
-
               // Update current marker
-              if (currentMarker) map.removeLayer(currentMarker);
-              const currentPoint = points[points.length - 1];
+              if (currentMarker && map.hasLayer(currentMarker)) {
+                map.removeLayer(currentMarker);
+              }
+              
+              const currentPoint = routePoints[routePoints.length - 1];
               currentMarker = L.circleMarker(currentPoint, {
                 radius: 7, fillColor: '#e74c3c', color: '#fff', weight: 2, fillOpacity: 1
               }).addTo(map).bindPopup("Current Location");
 
-              map.panTo(currentPoint);
-              window.ReactNativeWebView.postMessage("routeUpdated:" + points.length);
+              map.panTo(currentPoint, { animate: true, duration: 0.5 });
+              window.ReactNativeWebView.postMessage("routeUpdated:" + routePoints.length);
             } catch (err) {
               window.ReactNativeWebView.postMessage("error:" + err.message);
             }
           };
 
-          // Update image markers from React Native
+          // Update image markers
           window.updateImageMarkers = function(newImageMarkers) {
             try {
               const markersData = JSON.parse(newImageMarkers);
@@ -559,77 +459,38 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
             }
           };
 
-          // Initialize map when ready with retry limit
-          let initRetryCount = 0;
-          const maxRetries = 10;
-          let startMapInitCalled = false;
-          
-          function startMapInit() {
-            if (startMapInitCalled) {
-              console.log('🔄 startMapInit already called, preventing duplicate');
-              return;
-            }
-            startMapInitCalled = true;
-            
-            console.log('🚀 Starting map initialization... (attempt ' + (initRetryCount + 1) + ')');
-            
-            if (typeof L !== 'undefined') {
-              console.log('✅ Leaflet available, initializing map');
-              initMap();
-            } else if (initRetryCount < maxRetries) {
-              initRetryCount++;
-              startMapInitCalled = false; // Allow retry
-              console.log('⏳ Leaflet not ready, retrying in 300ms... (' + initRetryCount + '/' + maxRetries + ')');
-              setTimeout(startMapInit, 300);
-            } else {
-              console.error('❌ Failed to load Leaflet after ' + maxRetries + ' attempts');
-              document.getElementById('map').style.display = 'none';
-              document.getElementById('fallbackMap').style.display = 'flex';
-              window.ReactNativeWebView.postMessage("fallbackShown:Leaflet failed to load");
-            }
+          // Initialize map when ready
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initMap);
+          } else {
+            initMap();
           }
-          
-          // Start initialization after a delay to ensure DOM is ready
-          setTimeout(function() {
-            if (!isMapInitialized && !initializationInProgress) {
-              startMapInit();
-            }
-          }, 500);
         </script>
       </body>
       </html>
     `;
   };
 
-  // Send incremental updates to WebView when route changes
+  // Send OSRM-matched route updates to WebView
   useEffect(() => {
-    if (mapReady && routeCoordinates.length > 0 && webViewRef.current) {
-      const currentLength = routeCoordinates.length;
-      const lastLength = lastRouteLength.current;
+    if (mapReady && matchedRoute.length > 0 && webViewRef.current) {
+      const routeData = {
+        matchedRoute: matchedRoute,
+        segments: confidenceSegments,
+        confidence: confidenceSegments.length > 0 ? confidenceSegments[0].confidence : 1
+      };
       
-      if (currentLength > lastLength) {
-        // Send only new points for incremental update
-        const newPoints = routeCoordinates.slice(lastLength);
-        const newPointsString = JSON.stringify(newPoints);
-        webViewRef.current.postMessage(`updateRouteIncremental:${newPointsString}`);
-        lastRouteLength.current = currentLength;
-      } else if (currentLength < lastLength) {
-        // Route was reset, send full update
-        const routePointsString = JSON.stringify(routeCoordinates);
-        webViewRef.current.postMessage(`updateRoute:${routePointsString}`);
-        lastRouteLength.current = currentLength;
-      }
+      webViewRef.current.postMessage(`updateRoute:${JSON.stringify(routeData)}`);
     }
-  }, [routeCoordinates, mapReady]);
+  }, [matchedRoute, confidenceSegments, mapReady]);
 
-  // Send updates to WebView when image markers change
+  // Image marker updates
   useEffect(() => {
     if (mapReady && webViewRef.current) {
       const currentLength = imageMarkers.length;
       const lastLength = lastImageMarkersLength.current;
       
       if (currentLength !== lastLength) {
-        // Send full image markers update (they're typically small in number)
         const imageMarkersString = JSON.stringify(imageMarkers);
         webViewRef.current.postMessage(`updateImageMarkers:${imageMarkersString}`);
         lastImageMarkersLength.current = currentLength;
@@ -642,13 +503,16 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <BlinkingCircle isTracking={isTracking} />
-          <Text style={styles.title}>Live Tracking</Text>
+          <Text style={styles.title}>
+            Live Tracking {isProcessingOSRM && '(Processing...)'}
+          </Text>
         </View>
         <Text style={styles.coordinates}>
           {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)}
         </Text>
         <Text style={styles.pointCount}>
           {routeCoordinates.length} point{routeCoordinates.length !== 1 ? "s" : ""} tracked
+          {confidenceSegments.length > 0 && ` • ${(confidenceSegments[0].confidence * 100).toFixed(0)}% confidence`}
         </Text>
       </View>
 
@@ -656,19 +520,12 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
         ref={webViewRef}
         style={styles.map}
         source={{ html: generateMapHTML() }}
-        onLoad={() => {
-          console.log('📱 WebView loaded, waiting for map initialization...');
-          setTimeout(() => setMapReady(true), 1500);
-        }}
+        onLoad={() => setTimeout(() => setMapReady(true), 800)}
         onMessage={(event) => {
           const data = event.nativeEvent.data;
-          console.log('📨 WebView message:', data);
-          if (data === "mapReady") {
-            console.log('✅ Map ready signal received');
-            setMapReady(true);
-          }
-          if (data.startsWith("error:")) console.error("Leaflet error:", data);
-          if (data.startsWith("fallbackShown:")) console.warn("Map fallback:", data);
+          if (data === "mapReady") setMapReady(true);
+          if (data.startsWith("error:")) console.error("Map error:", data);
+          if (data.startsWith("fallbackShown:")) console.warn("Map fallback shown:", data);
           if (data.startsWith("imageMarkerPressed:")) {
             const index = parseInt(data.split(":")[1]);
             if (onImageMarkerPress && imageMarkers[index]) {
@@ -676,15 +533,11 @@ const MapWebView = ({ currentLocation, routeCoordinates, isVisible, isTracking, 
             }
           }
         }}
-        onError={(error) => {
-          console.error('❌ WebView error:', error);
-        }}
-        onLoadEnd={() => {
-          console.log('🏁 WebView load ended');
-        }}
         javaScriptEnabled
         domStorageEnabled
         originWhitelist={["*"]}
+        cacheEnabled={true}
+        incognito={false}
       />
     </View>
   );
@@ -700,4 +553,4 @@ const styles = StyleSheet.create({
   headerTitleContainer: { flexDirection: "row", alignItems: "center", marginBottom: 5, paddingBottom: 2 }
 });
 
-export default MapWebView;
+export default MapWebViewWithOSRM;
