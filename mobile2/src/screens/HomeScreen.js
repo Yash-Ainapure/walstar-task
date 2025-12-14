@@ -48,11 +48,53 @@ const HomeScreen = ({ navigation }) => {
   const [tripName, setTripName] = useState('');
   const [currentTripName, setCurrentTripName] = useState('');
   const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [imageMarkers, setImageMarkers] = useState([]);
   const [showImageCapture, setShowImageCapture] = useState(false);
+  const [captureType, setCaptureType] = useState('start_speedometer');
   const [imageCaptureType, setImageCaptureType] = useState('start_speedometer');
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
-  // const [pendingStartImage, setPendingStartImage] = useState(null);
+
+  // Clear stuck app state function
+  const clearAppState = async () => {
+    try {
+      console.log(' Clearing stuck app state...');
+      
+      // Stop any running location tracking
+      try {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+        console.log(' Location tracking stopped');
+      } catch (error) {
+        console.log(' No active location tracking to stop');
+      }
+      
+      // Clear AsyncStorage session data
+      await AsyncStorage.multiRemove(['currentSessionId', 'currentTripName']);
+      console.log(' AsyncStorage cleared');
+      
+      // Clear local database
+      await initDB();
+      await deleteAllLocations();
+      console.log(' Local database cleared');
+      
+      // Reset component state
+      setIsTracking(false);
+      setCurrentSessionId(null);
+      setCurrentTripName('');
+      setTripName('');
+      setRouteCoordinates([]);
+      setImageMarkers([]);
+      setTrackingStartTime(null);
+      
+      console.log(' App state cleared successfully');
+      Alert.alert('Success', 'App state cleared. You can now start a new trip.');
+      
+    } catch (error) {
+      console.error(' Error clearing app state:', error);
+      Alert.alert('Error', 'Failed to clear app state completely, but you can try starting a new trip.');
+    }
+  };
+
   const [sessionImages, setSessionImages] = useState([]);
 
   // FIX: Modified syncOfflineData to accept session details as parameters.
@@ -394,7 +436,7 @@ const HomeScreen = ({ navigation }) => {
       <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
 
       <View style={styles.header}>
-        <Text style={styles.title}>WalStar Trackisssng</Text>
+        <Text style={styles.title}>WalStar Tracking</Text>
         <View style={[styles.statusContainer, { display: isTracking ? 'none' : 'block' }]}>
           <View style={[styles.statusDot, { backgroundColor: isTracking ? '' : '#dc3545' }]} />
           <Text style={styles.statusText}>
@@ -470,12 +512,22 @@ const HomeScreen = ({ navigation }) => {
             <TouchableOpacity style={styles.secondaryButton} onPress={handleViewLocalData}>
               <Text style={styles.secondaryButtonText}>📊 View Data</Text>
             </TouchableOpacity>
+            
 
             <TouchableOpacity style={[styles.secondaryButton, styles.stopButton]} onPress={handleJourneyStop}>
               <Text style={styles.secondaryButtonText}>⛽ Add Stop</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={[styles.secondaryButton, styles.clearStateButton]} onPress={clearAppState}>
+              <Text style={styles.secondaryButtonText}>🧹 Clear State</Text>
+            </TouchableOpacity>
           </View>
-        ) : null
+        ) : (
+          <View style={styles.secondaryControls}>
+            <TouchableOpacity style={[styles.secondaryButton, styles.clearStateButton]} onPress={clearAppState}>
+              <Text style={styles.secondaryButtonText}>🧹 Clear State</Text>
+            </TouchableOpacity>
+          </View>
+        )
       }
 
 
@@ -735,7 +787,10 @@ const styles = StyleSheet.create({
   startButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '500',
+  },
+  clearStateButton: {
+    backgroundColor: '#dc3545',
   },
 });
 
